@@ -307,6 +307,7 @@ class ReaSolotus : public IReaperControlSurface {
     }
     void SetSurfaceSolo(MediaTrack* trackid, bool solo)
     {
+        (void)solo;
         // to avoid internal recursion
         if (atomic_bool_lock == true) {
             return;
