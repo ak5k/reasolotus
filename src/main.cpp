@@ -72,7 +72,7 @@ MediaTrack* GetMixbus()
 
     char buf[BUFSIZ] {};
     GUID* g {};
-    GetProjExtState(0, EXTNAME, "Mixbus", buf, BUFSIZ);
+    GetProjExtState(0, EXTNAME, "Mix", buf, BUFSIZ);
 
     std::string s = buf;
 
@@ -88,16 +88,16 @@ MediaTrack* GetMixbus()
     if (res == nullptr) {
         InsertTrackAtIndex(GetNumTracks(), false);
         res = GetTrack(0, GetNumTracks() - 1);
-        GetSetMediaTrackInfo_String(res, "P_NAME", (char*)"Mixbus", true);
+        GetSetMediaTrackInfo_String(res, "P_NAME", (char*)"Mix", true);
         SetMediaTrackInfo_Value(res, "B_MAINSEND", 0);
         SetMediaTrackInfo_Value(res, "B_SOLO_DEFEAT", 1);
     }
 
     g = GetTrackGUID(res);
     guidToString(g, buf);
-    SetProjExtState(0, EXTNAME, "Mixbus", buf);
+    SetProjExtState(0, EXTNAME, "Mix", buf);
 
-        return res;
+    return res;
 }
 
 MediaTrack* GetSolobus()
@@ -113,7 +113,7 @@ MediaTrack* GetSolobus()
 
     char buf[BUFSIZ] {};
     GUID* g {};
-    GetProjExtState(0, EXTNAME, "Solotus", buf, BUFSIZ);
+    GetProjExtState(0, EXTNAME, "Solo", buf, BUFSIZ);
 
     std::string s = buf;
 
@@ -129,13 +129,13 @@ MediaTrack* GetSolobus()
     if (res == nullptr) {
         InsertTrackAtIndex(GetNumTracks(), false);
         res = GetTrack(0, GetNumTracks() - 1);
-        GetSetMediaTrackInfo_String(res, "P_NAME", (char*)"Solotus", true);
+        GetSetMediaTrackInfo_String(res, "P_NAME", (char*)"Solo", true);
         SetMediaTrackInfo_Value(res, "B_SOLO_DEFEAT", 1);
     }
 
     g = GetTrackGUID(res);
     guidToString(g, buf);
-    SetProjExtState(0, EXTNAME, "Solotus", buf);
+    SetProjExtState(0, EXTNAME, "Solo", buf);
 
     return res;
 }
