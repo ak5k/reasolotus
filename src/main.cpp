@@ -1,5 +1,6 @@
 #include "reaper_vararg.hpp"
 #include <mutex>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -155,18 +156,22 @@ void Organize()
     }
 }
 
-void DoSolo(MediaTrack* tr, bool solo)
+void DoSolo(std::set<MediaTrack*>& queue)
 {
     PreventUIRefresh(1);
     Undo_BeginBlock();
     Organize();
     auto mixbus = GetMixbus();
     auto solobus = GetSolobus();
-    if (solo) {
-        CreateSend(tr, solobus);
+    for (int i = 0; i < GetTrackNumSends(solobus, -1); i++) {
+        auto tr = (MediaTrack*)(uintptr_t)
+            GetTrackSendInfo_Value(solobus, -1, i, "P_SRCTRACK");
+        if (!queue.contains(tr)) {
+            RemoveSend(tr, solobus);
+        }
     }
-    else {
-        RemoveSend(tr, solobus);
+    for (auto&& i : queue) {
+        CreateSend(i, solobus);
     }
 
     if (AnyTrackSolo(0)) {
@@ -243,11 +248,36 @@ class ReaSolotus : public IReaperControlSurface {
     }
     void SetSurfaceSolo(MediaTrack* trackid, bool solo)
     {
-        // std::scoped_lock lock(m);
-        if (solotus_state == 0 || trackid == GetMasterTrack(0)) {
+        if (solotus_state == 0) {
             return;
         }
-        DoSolo(trackid, solo);
+        auto master = GetMasterTrack(0);
+        if (trackid != master) {
+            return;
+        }
+
+        std::set<MediaTrack*> queue {};
+        for (int i = 0; i < GetNumTracks(); i++) {
+            auto tr = GetTrack(0, i);
+            int state {};
+            (void)GetTrackState(tr, &state);
+            if (state & 16) {
+                queue.insert(tr);
+            }
+        }
+
+        // std::scoped_lock lock(m);
+        // char buf[BUFSIZ] {};
+        // GetTrackName(trackid, buf, BUFSIZ);
+        // ShowConsoleMsg(buf);
+        // ShowConsoleMsg("\n");
+        // if (solo) {
+        //     ShowConsoleMsg("true\n");
+        // }
+        // else {
+        //     ShowConsoleMsg("false\n");
+        // }
+        DoSolo(queue);
     }
 };
 
