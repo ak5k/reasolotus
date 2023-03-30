@@ -6,7 +6,6 @@ include(CheckCXXSourceCompiles)
 include(CheckIncludeFileCXX)
 include(CheckLinkerFlag)
 include(FindGit)
-find_package(CURL CONFIG REQUIRED)
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 
