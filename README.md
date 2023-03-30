@@ -12,6 +12,6 @@
 * Creating separate live mixing projects recommended.
 * Setting REAPER default solo to not in-place recommended when working with more complex routings(Options > Solo settings).
 * Tracks are soloed as PFL (post-fx).
-* If no tracks are soloed then Mix is monitored AFL.
+* If no tracks are soloed then Mix is monitored.
 
 ![image](https://i.imgur.com/jSFMUHN.gif)
