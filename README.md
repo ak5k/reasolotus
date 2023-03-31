@@ -3,8 +3,8 @@
 * Uses discrete Mix and Solo buses (tracks) to achieve non-destructive soloing (uninterrupted output).
 * Also known as Cue / PFL / Listen.
 * Works by capturing solo commands and managing track routing automatically.
-* Works in tandem with control surfaces, mouse, and keyboard shortcuts.
 * 'Hijacks' tracks routed to Main / Master, and reroutes them through Mix and/or Solo bus when soloed/unsoloed.
+* Works in tandem with control surfaces, mouse, and keyboard shortcuts.
 * Folder tracks (parent/child structure) and are currently not supported.
 * Manual routing (e.g. grouping) can be done with sends.
 * REAPER Master track is used as control room / headphones output.
