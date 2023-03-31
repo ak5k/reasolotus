@@ -1,6 +1,6 @@
 # ReaSolotus
 * Plugin extension to improve live mixing experience with REAPER.
-* Uses discrete Mix and Solo buses (tracks) to achieve non-destructive soloing.
+* Uses discrete Mix and Solo buses (tracks) to achieve non-destructive soloing (uninterrupted output).
 * Also known as Cue / PFL / Listen.
 * Works by capturing solo commands and managing track routing automatically.
 * Works in tandem with control surfaces, mouse, and keyboard shortcuts.
