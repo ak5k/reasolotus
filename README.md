@@ -10,7 +10,7 @@
 * Manual routing (e.g. grouping) can be done with sends.
 * REAPER Master track is used as control room / headphones output.
 * Mix track is main / program / PA / stream / tape output. Freely assignable to any hardware output(s).
-* Creating separate live mixing projects recommended.
+* Creating separate live mixing projects is recommended.
 * Manual routing (e.g. grouping) can be done with sends.
 * Setting REAPER default solo to not in-place is recommended when working with more complex routings (Options > Solo settings).
 * If SWS/S&M is installed, changes default Solo setting automatically.
