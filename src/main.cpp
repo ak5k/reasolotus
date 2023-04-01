@@ -4,7 +4,6 @@
 #include <set>
 #include <string>
 #include <vector>
-
 #define REAPERAPI_IMPLEMENT
 #include <reaper_plugin_functions.h>
 
@@ -14,6 +13,8 @@ int solotus_command_id {-1};
 int solotus_state {0};
 std::mutex m {};
 std::atomic_bool atomic_bool_lock {false};
+
+bool (*SNM_SetIntConfigVar)(const char* varname, int newvalue);
 
 bool HasSend(MediaTrack* src, MediaTrack* dst)
 {
@@ -33,35 +34,6 @@ bool HasSend(MediaTrack* src, MediaTrack* dst)
     }
     return res;
 }
-
-// void RemoveSend(MediaTrack* src, MediaTrack* dst)
-// {
-//     for (int i = 0; i < GetTrackNumSends(src, 0); i++) {
-//         auto p = (MediaTrack*)(uintptr_t)
-//             GetTrackSendInfo_Value(src, 0, i, "P_DESTTRACK");
-//         if (p == dst) {
-//             RemoveTrackSend(src, 0, i);
-//             break;
-//         }
-//     }
-// }
-
-// void CreateSend(MediaTrack* src, MediaTrack* dst)
-// {
-//     bool found {false};
-//     for (int i = 0; i < GetTrackNumSends(src, 0); i++) {
-//         auto p = (MediaTrack*)(uintptr_t)
-//             GetTrackSendInfo_Value(src, 0, i, "P_DESTTRACK");
-//         if (p == dst) {
-//             found = true;
-//             break;
-//         }
-//     }
-//     if (!found) {
-//         auto n = CreateTrackSend(src, dst);
-//         SetTrackSendInfo_Value(src, 0, n, "I_SENDMODE", 3);
-//     }
-// }
 
 MediaTrack* GetMixbus()
 {
@@ -161,6 +133,9 @@ void Organize()
 
     for (auto i = 0; i < GetNumTracks(); i++) {
         auto tr = GetTrack(0, i);
+        if (GetTrackNumSends(tr, 1) > 0) {
+            SetMediaTrackInfo_Value(tr, "B_SOLO_DEFEAT", 1);
+        }
         if (HasSend(tr, master) && tr != mixbus && tr != solobus &&
             tr != master) {
             CreateTrackSend(tr, mixbus);
@@ -173,7 +148,8 @@ void Organize()
         auto parent = GetParentTrack(tr);
         if (parent != nullptr) {
             folderFound = true;
-            if (!HasSend(tr, parent)) {
+            auto hasParentSend = GetMediaTrackInfo_Value(tr, "B_MAINSEND");
+            if (!HasSend(tr, parent) && hasParentSend > 0) {
                 CreateTrackSend(tr, parent);
             }
             for (int j = 0; j < GetTrackNumSends(tr, 0); j++) {
@@ -183,6 +159,12 @@ void Organize()
                     RemoveTrackSend(tr, 0, j);
                 }
             }
+            auto parentIdx =
+                (int)GetMediaTrackInfo_Value(parent, "IP_TRACKNUMBER");
+
+            SetOnlyTrackSelected(tr);
+            ReorderSelectedTracks(parentIdx - 1, 0);
+            SetTrackSelected(tr, false);
         }
         if (tr != solobus) {
             SetMediaTrackInfo_Value(tr, "B_MAINSEND", 0);
@@ -193,8 +175,21 @@ void Organize()
 
     if (folderFound) {
         ShowConsoleMsg(
-            "ReaSolotus: Folders not supported. Use sends instead. Setting "
-            "default solo mode to 'ignore-routing' highly recommended.\n");
+            "ReaSolotus: Folders not supported. Use sends instead. \n");
+
+        if (plugin_getapi("SNM_SetIntConfigVar")) {
+            SNM_SetIntConfigVar = (decltype(SNM_SetIntConfigVar))plugin_getapi(
+                "SNM_SetIntConfigVar");
+            ShowConsoleMsg(
+                "ReaSolotus: SWS/S&M extension found. Setting default solo "
+                "mode to 'ignore-routing'.\n");
+            SNM_SetIntConfigVar("soloip", 0);
+        }
+        else {
+            ShowConsoleMsg(
+                "ReaSolotus: Setting default solo mode to 'ignore-routing' is "
+                "highly recommended.\n");
+        }
     }
 }
 
@@ -344,6 +339,7 @@ class ReaSolotus : public IReaperControlSurface {
             return;
         }
 
+        atomic_bool_lock = true;
         std::set<MediaTrack*> queue {};
         if (solo) {
             for (int i = 0; i < GetNumTracks(); i++) {
@@ -356,10 +352,8 @@ class ReaSolotus : public IReaperControlSurface {
             }
         }
 
-        atomic_bool_lock = true;
         DoSolo(queue);
         atomic_bool_lock = false;
-        (void)solo;
     }
 
     void SetSurfaceMute(MediaTrack* trackid, bool mute)

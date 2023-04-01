@@ -6,6 +6,7 @@
 * Works in tandem with control surfaces, mouse, and keyboard shortcuts.
 * 'Hijacks' tracks routed to Main / Master, and reroutes them through Mix and/or Solo bus when soloed/unsoloed.
 * Folder tracks (parent/child structure) and are currently not supported.
+* WARNING: Flattens existings parent/child structures and replaces parent send with ordinary send.
 * Manual routing (e.g. grouping) can be done with sends.
 * REAPER Master track is used as control room / headphones output.
 * Mix track is main / program / PA / stream / tape output. Freely assignable to any hardware output(s).
