@@ -13,6 +13,7 @@
 * Creating separate live mixing projects recommended.
 * Manual routing (e.g. grouping) can be done with sends.
 * Setting REAPER default solo to not in-place is recommended when working with more complex routings (Options > Solo settings).
+* If SWS/S&M is installed, changes default Solo setting automatically.
 * Tracks are soloed as PFL (post-fx).
 * If no tracks are soloed then Mix is monitored.
 
