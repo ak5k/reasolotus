@@ -17,6 +17,32 @@ std::mutex m {};
 std::atomic_bool atomic_bool_lock {false};
 
 // from SWS/SNM extension
+/******************************************************************************
+/ SnM_Util.cpp
+/
+/ Copyright (c) 2012 and later Jeffos
+/
+/
+/ Permission is hereby granted, free of charge, to any person obtaining a copy
+/ of this software and associated documentation files (the "Software"), to deal
+/ in the Software without restriction, including without limitation the rights
+to / use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies / of the Software, and to permit persons to whom the Software is
+furnished to / do so, subject to the following conditions:
+/
+/ The above copyright notice and this permission notice shall be included in all
+/ copies or substantial portions of the Software.
+/
+/ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+/ EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
+/ OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+/ NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
+/ HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+/ WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+/ FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
+/ OTHER DEALINGS IN THE SOFTWARE.
+/
+******************************************************************************/
 bool SNM_SetIntConfigVar(const char* varName, const int newValue)
 {
     if (!strcmp(varName, "vzoom2")) // set both vzoom3 and vzoom2 (below)
@@ -34,6 +60,8 @@ bool SNM_SetIntConfigVar(const char* varName, const int newValue)
 
     return false;
 }
+// ****************************************************************************
+// end SnM_Util.cpp
 
 bool HasSend(MediaTrack* src, MediaTrack* dst)
 {
@@ -149,22 +177,28 @@ void Organize()
     auto mixbus = GetMixbus();
     auto solobus = GetSolobus();
     auto folderFound {false};
+    auto hasSends {false};
 
     for (auto i = 0; i < GetNumTracks(); i++) {
         auto tr = GetTrack(0, i);
+
         if (GetTrackNumSends(tr, 1) > 0) {
             SetMediaTrackInfo_Value(tr, "B_SOLO_DEFEAT", 1);
         }
+
         if (HasSend(tr, master) && tr != mixbus && tr != solobus &&
             tr != master) {
             CreateTrackSend(tr, mixbus);
         }
+
         if (!HasSend(tr, solobus) && tr != solobus && tr != master) {
             auto j = CreateTrackSend(tr, solobus);
             SetTrackSendInfo_Value(tr, 0, j, "B_MUTE", (tr == mixbus) ? 0 : 1);
             SetTrackSendInfo_Value(tr, 0, j, "I_SENDMODE", 3);
         }
+
         auto parent = GetParentTrack(tr);
+
         if (parent != nullptr) {
             folderFound = true;
             auto hasParentSend = GetMediaTrackInfo_Value(tr, "B_MAINSEND");
@@ -185,18 +219,30 @@ void Organize()
             ReorderSelectedTracks(parentIdx - 1, 0);
             SetTrackSelected(tr, false);
         }
+
         if (tr != solobus) {
             SetMediaTrackInfo_Value(tr, "B_MAINSEND", 0);
         }
+
+        if (GetTrackNumSends(tr, 0) > 2) {
+            hasSends = true;
+        }
     }
+
     SetMediaTrackInfo_Value(mixbus, "B_SOLO_DEFEAT", 1);
     SetMediaTrackInfo_Value(solobus, "B_SOLO_DEFEAT", 1);
 
     if (folderFound) {
         ShowConsoleMsg(
             "ReaSolotus: Folders not supported. Use sends instead. \n");
+    }
 
-        SNM_SetIntConfigVar("soloip", 0);
+    if (folderFound || hasSends) {
+        char buf[BUFSIZ];
+        if (get_config_var_string("soloip", buf, BUFSIZ) &&
+            std::stoi(buf) != 0) {
+            SNM_SetIntConfigVar("soloip", 0);
+        };
     }
 }
 
