@@ -197,19 +197,6 @@ void Organize()
             "ReaSolotus: Folders not supported. Use sends instead. \n");
 
         SNM_SetIntConfigVar("soloip", 0);
-        // if (plugin_getapi("SNM_SetIntConfigVar")) {
-        //     // SNM_SetIntConfigVar =
-        //     // (decltype(SNM_SetIntConfigVar))plugin_getapi(
-        //     //     "SNM_SetIntConfigVar");
-        //     ShowConsoleMsg(
-        //         "ReaSolotus: SWS/S&M extension found. Setting default solo "
-        //         "mode to 'ignore-routing'.\n");
-        // }
-        // else {
-        //     ShowConsoleMsg(
-        //         "ReaSolotus: Setting default solo mode to 'ignore-routing' is
-        //         " "highly recommended.\n");
-        // }
     }
 }
 

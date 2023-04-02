@@ -122,8 +122,7 @@ if(WIN32)
     /W3
     /WX
     )
-  target_compile_definitions(common INTERFACE NOMINMAX)
-  # target_compile_definitions(common INTERFACE NOMINMAX UNICODE)
+    target_compile_definitions(common INTERFACE NOMINMAX UNICODE)
 else()
   target_compile_options(common INTERFACE
     -Wall -Wextra -Wpedantic -Werror
