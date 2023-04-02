@@ -7,6 +7,8 @@
 #define REAPERAPI_IMPLEMENT
 #include <reaper_plugin_functions.h>
 
+#include "configvar.h"
+
 #define EXTNAME "ReaSolotus"
 
 int solotus_command_id {-1};
@@ -14,7 +16,24 @@ int solotus_state {0};
 std::mutex m {};
 std::atomic_bool atomic_bool_lock {false};
 
-bool (*SNM_SetIntConfigVar)(const char* varname, int newvalue);
+// from SWS/SNM extension
+bool SNM_SetIntConfigVar(const char* varName, const int newValue)
+{
+    if (!strcmp(varName, "vzoom2")) // set both vzoom3 and vzoom2 (below)
+        ConfigVar<float>("vzoom3").try_set(static_cast<float>(newValue));
+    if (ConfigVar<int>(varName).try_set(newValue))
+        return true;
+    if (ConfigVar<char> cv {varName}) {
+        if (newValue > std::numeric_limits<char>::max() ||
+            newValue < std::numeric_limits<char>::min())
+            return false;
+
+        *cv = newValue;
+        return true;
+    }
+
+    return false;
+}
 
 bool HasSend(MediaTrack* src, MediaTrack* dst)
 {
@@ -177,19 +196,20 @@ void Organize()
         ShowConsoleMsg(
             "ReaSolotus: Folders not supported. Use sends instead. \n");
 
-        if (plugin_getapi("SNM_SetIntConfigVar")) {
-            SNM_SetIntConfigVar = (decltype(SNM_SetIntConfigVar))plugin_getapi(
-                "SNM_SetIntConfigVar");
-            ShowConsoleMsg(
-                "ReaSolotus: SWS/S&M extension found. Setting default solo "
-                "mode to 'ignore-routing'.\n");
-            SNM_SetIntConfigVar("soloip", 0);
-        }
-        else {
-            ShowConsoleMsg(
-                "ReaSolotus: Setting default solo mode to 'ignore-routing' is "
-                "highly recommended.\n");
-        }
+        SNM_SetIntConfigVar("soloip", 0);
+        // if (plugin_getapi("SNM_SetIntConfigVar")) {
+        //     // SNM_SetIntConfigVar =
+        //     // (decltype(SNM_SetIntConfigVar))plugin_getapi(
+        //     //     "SNM_SetIntConfigVar");
+        //     ShowConsoleMsg(
+        //         "ReaSolotus: SWS/S&M extension found. Setting default solo "
+        //         "mode to 'ignore-routing'.\n");
+        // }
+        // else {
+        //     ShowConsoleMsg(
+        //         "ReaSolotus: Setting default solo mode to 'ignore-routing' is
+        //         " "highly recommended.\n");
+        // }
     }
 }
 

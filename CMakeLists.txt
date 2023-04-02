@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.19)
-project(reaper_reasolotus LANGUAGES CXX)
+project(reaper_reasolotus LANGUAGES C CXX)
 
 include(CheckCompilerFlag)
 include(CheckCXXSourceCompiles)
@@ -70,6 +70,7 @@ if(WIN32)
   endforeach()
 
   add_compile_options(
+    /utf-8
     # Exception handling model
     /EHsc
 
@@ -114,14 +115,15 @@ endif()
 add_library(common INTERFACE)
 target_include_directories(
   common SYSTEM INTERFACE
-  ${CMAKE_SOURCE_DIR}/include
+  ${CMAKE_SOURCE_DIR}/extneral
   ${CMAKE_SOURCE_DIR}/external/reaper-sdk/sdk)
 if(WIN32)
   target_compile_options(common INTERFACE
     /W3
     /WX
     )
-  target_compile_definitions(common INTERFACE NOMINMAX UNICODE)
+  target_compile_definitions(common INTERFACE NOMINMAX)
+  # target_compile_definitions(common INTERFACE NOMINMAX UNICODE)
 else()
   target_compile_options(common INTERFACE
     -Wall -Wextra -Wpedantic -Werror
