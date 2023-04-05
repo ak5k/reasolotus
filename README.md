@@ -8,7 +8,7 @@
 * Folder tracks (parent/child structure) and are currently not supported.
 * WARNING: Flattens existings parent/child structures and replaces parent send with ordinary send.
 * Manual routing (e.g. grouping) can be done with sends.
-* If parent/child structures or use of sends is detected, changes REAPER default solo mode to 'ignore-routing'.
+* WARNING: changes REAPER default solo mode to 'ignore-routing'.
 * REAPER Master track is used as control room / headphones output.
 * Mix track is main / program / PA / stream / tape output. Freely assignable to any hardware output(s).
 * Creating separate live mixing projects is recommended.

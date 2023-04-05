@@ -224,9 +224,9 @@ void Organize()
             SetMediaTrackInfo_Value(tr, "B_MAINSEND", 0);
         }
 
-        if (GetTrackNumSends(tr, 0) > 2) {
-            hasSends = true;
-        }
+        // if (GetTrackNumSends(tr, 0) > 2) {
+        //     hasSends = true;
+        // }
     }
 
     SetMediaTrackInfo_Value(mixbus, "B_SOLO_DEFEAT", 1);
@@ -237,13 +237,10 @@ void Organize()
             "ReaSolotus: Folders not supported. Use sends instead. \n");
     }
 
-    if (folderFound || hasSends) {
-        char buf[BUFSIZ];
-        if (get_config_var_string("soloip", buf, BUFSIZ) &&
-            std::stoi(buf) != 0) {
-            SNM_SetIntConfigVar("soloip", 0);
-        };
-    }
+    char buf[BUFSIZ];
+    if (get_config_var_string("soloip", buf, BUFSIZ) && std::stoi(buf) != 0) {
+        SNM_SetIntConfigVar("soloip", 0);
+    };
 }
 
 void DoSolo(std::set<MediaTrack*>& queue)
