@@ -177,7 +177,7 @@ void Organize()
     auto mixbus = GetMixbus();
     auto solobus = GetSolobus();
     auto folderFound {false};
-    auto hasSends {false};
+    // auto hasSends {false};
 
     for (auto i = 0; i < GetNumTracks(); i++) {
         auto tr = GetTrack(0, i);
