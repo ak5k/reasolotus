@@ -6,10 +6,10 @@
 /
 / Permission is hereby granted, free of charge, to any person obtaining a copy
 / of this software and associated documentation files (the "Software"), to deal
-/ in the Software without restriction, including without limitation the rights to
-/ use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies
-/ of the Software, and to permit persons to whom the Software is furnished to
-/ do so, subject to the following conditions:
+/ in the Software without restriction, including without limitation the rights
+to / use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies / of the Software, and to permit persons to whom the Software is
+furnished to / do so, subject to the following conditions:
 /
 / The above copyright notice and this permission notice shall be included in all
 / copies or substantial portions of the Software.
@@ -26,76 +26,99 @@
 ******************************************************************************/
 
 #pragma once
+#include <reaper_plugin_functions.h>
 
-template<typename T>
-class ConfigVar {
-public:
-  ConfigVar(const char *name, ReaProject *project = nullptr)
-    : m_name{name}, m_addr{}
-  {
-    int size = 0;
-    void *addr;
+template <typename T>
+class ConfigVar
+{
+  public:
+    explicit ConfigVar(const char* name, ReaProject* project = nullptr)
+        : m_name {name}
+        , m_addr {}
+    {
+        int size = 0;
+        void* addr;
 
-    if(const int offset = projectconfig_var_getoffs(name, &size))
-      addr = projectconfig_var_addr(project, offset);
-    else
-      addr = get_config_var(name, &size);
+        if (const int offset = projectconfig_var_getoffs(name, &size))
+            addr = projectconfig_var_addr(project, offset);
+        else
+            addr = get_config_var(name, &size);
 
-    if(size == sizeof(T))
-      m_addr = static_cast<T *>(addr);
-  }
+        if (size == sizeof(T))
+            m_addr = static_cast<T*>(addr);
+    }
 
-  explicit operator bool() const { return m_addr != nullptr; }
+    explicit operator bool() const
+    {
+        return m_addr != nullptr;
+    }
 
-  T &operator*() { return *m_addr; }
-  const T &operator*() const { return *m_addr; }
-  T *get() { return m_addr; }
-  const T *get() const { return m_addr; }
+    T& operator*()
+    {
+        return *m_addr;
+    }
 
-  T value_or(const T fallback) const
-  {
-    return m_addr ? *m_addr : fallback;
-  }
+    const T& operator*() const
+    {
+        return *m_addr;
+    }
 
-  bool try_set(const T newValue)
-  {
-    if(!m_addr)
-      return false;
+    T* get()
+    {
+        return m_addr;
+    }
 
-    *m_addr = newValue;
-    return true;
-  }
+    const T* get() const
+    {
+        return m_addr;
+    }
 
-  void save();
+    T value_or(const T fallback) const
+    {
+        return m_addr ? *m_addr : fallback;
+    }
 
-private:
-  const char *m_name;
-  T *m_addr;
+    bool try_set(const T newValue)
+    {
+        if (!m_addr)
+            return false;
+
+        *m_addr = newValue;
+        return true;
+    }
+
+    void save();
+
+  private:
+    const char* m_name;
+    T* m_addr;
 };
 
-template<typename T>
-class ConfigVarOverride {
-public:
-  ConfigVarOverride(ConfigVar<T> var, const T tempValue)
-    : m_var{var}
-  {
-    if(m_var) {
-      m_initialValue = *m_var;
-      *m_var = tempValue;
+template <typename T>
+class ConfigVarOverride
+{
+  public:
+    ConfigVarOverride(ConfigVar<T> var, const T tempValue)
+        : m_var {var}
+    {
+        if (m_var)
+        {
+            m_initialValue = *m_var;
+            *m_var = tempValue;
+        }
     }
-  }
 
-  void rollback()
-  {
-    m_var.try_set(m_initialValue);
-  }
+    void rollback()
+    {
+        m_var.try_set(m_initialValue);
+    }
 
-  ~ConfigVarOverride()
-  {
-    rollback();
-  }
+    ~ConfigVarOverride()
+    {
+        rollback();
+    }
 
-private:
-  ConfigVar<T> m_var;
-  T m_initialValue;
+  private:
+    ConfigVar<T> m_var;
+    T m_initialValue;
 };

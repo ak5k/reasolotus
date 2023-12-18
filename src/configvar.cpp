@@ -25,42 +25,14 @@ furnished to / do so, subject to the following conditions:
 /
 ******************************************************************************/
 
-#include <cstdio>
-#include <reaper_plugin_functions.h>
-#include <string>
-
 #include "configvar.h"
-
-#ifdef _WIN32
-std::wstring widen(const char*, UINT codepage = CP_UTF8);
-inline std::wstring widen(const std::string& str, UINT codepage = CP_UTF8)
-{
-    return widen(str.c_str(), codepage);
-}
-std::wstring widen(const char* input, const UINT codepage)
-{
-    const int size =
-        MultiByteToWideChar(codepage, 0, input, -1, nullptr, 0) - 1;
-
-    std::wstring output(size, 0);
-    MultiByteToWideChar(codepage, 0, input, -1, &output[0], size);
-
-    return output;
-}
-#define widen_cstr(cstr) widen(cstr).c_str()
-#else
-#include <swell/swell.h>
-#define widen_cstr(cstr) cstr
-#endif
+#include <reaper_plugin_functions.h>
+#include <stdio.h>
 
 template <>
 void ConfigVar<int>::save()
 {
     char buf[12];
     snprintf(buf, sizeof(buf), "%d", *m_addr);
-    WritePrivateProfileString(
-        widen_cstr("REAPER"),
-        widen_cstr(m_name),
-        widen_cstr(buf),
-        widen_cstr(get_ini_file()));
+    WritePrivateProfileString("REAPER", m_name, buf, get_ini_file());
 }

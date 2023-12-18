@@ -1,13 +1,92 @@
-cmake_minimum_required(VERSION 3.19)
-project(reaper_reasolotus LANGUAGES C CXX)
+cmake_minimum_required(VERSION 3.22)
 
-include(CheckCompilerFlag)
-include(CheckCXXSourceCompiles)
-include(CheckIncludeFileCXX)
-include(CheckLinkerFlag)
-include(FindGit)
+include(CheckCXXCompilerFlag)
+include(FetchContent)
+
+project(reasolotus LANGUAGES C CXX)
+add_library(${PROJECT_NAME} SHARED)
+set_property(TARGET ${PROJECT_NAME} PROPERTY CXX_STANDARD 23)
+
+# path for external 3rd party library dependencies 
+set(PROJECT_LIB_DIR ${PROJECT_SOURCE_DIR}/lib)
+
+FetchContent_Declare(WDL SYSTEM 
+    GIT_REPOSITORY https://github.com/justinfrankel/WDL
+    GIT_TAG        "origin/main" # or specify a tag or branch here
+    SOURCE_DIR     "${PROJECT_LIB_DIR}/WDL"
+    )
+
+FetchContent_Declare(reaper-sdk SYSTEM
+    GIT_REPOSITORY https://github.com/justinfrankel/reaper-sdk
+    GIT_TAG        "origin/main" # or specify a tag or branch here
+    SOURCE_DIR     "${PROJECT_LIB_DIR}/reaper-sdk"
+    )
+
+FetchContent_MakeAvailable(WDL reaper-sdk)
+
+# symlink WDL to reaper-sdk
+execute_process(
+    COMMAND ${CMAKE_COMMAND} -E create_symlink
+            # source
+            "${PROJECT_LIB_DIR}/WDL/WDL"
+            # target
+            "${PROJECT_LIB_DIR}/reaper-sdk/WDL"
+)
+
+if(WIN32)
+  add_compile_definitions(NOMINMAX _CRT_SECURE_NO_WARNINGS _CRT_NONSTDC_NO_DEPRECATE)
+
+  target_compile_options(
+    ${PROJECT_NAME} 
+      PRIVATE 
+      /W3 /WX)
+else()
+  target_compile_options(
+    ${PROJECT_NAME}
+      PRIVATE
+      -Wall -Wextra -Werror -Wpedantic
+  )
+endif()
+
+FILE(GLOB header_paths 
+    ${PROJECT_LIB_DIR}/reaper-sdk/sdk
+    )
+
+target_include_directories(${PROJECT_NAME} SYSTEM PRIVATE ${header_paths})
+
+if(DEFINED ENV{VCPKG_ROOT} AND NOT DEFINED CMAKE_TOOLCHAIN_FILE)
+  set(CMAKE_TOOLCHAIN_FILE "$ENV{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake"
+    CACHE STRING "")
+endif()
+
+if(DEFINED ENV{VCPKG_DEFAULT_TRIPLET} AND NOT DEFINED VCPKG_TARGET_TRIPLET)
+  set(VCPKG_TARGET_TRIPLET "$ENV{VCPKG_DEFAULT_TRIPLET}" CACHE STRING "")
+endif()
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
+
+find_package(WDL REQUIRED)
+
+if(NOT WIN32)
+  find_package(SWELL REQUIRED)
+endif()
+
+target_link_libraries(${PROJECT_NAME} PRIVATE WDL::WDL)
+
+if(SWELL_FOUND)
+  target_link_libraries(${PROJECT_NAME} PRIVATE SWELL::swell)
+
+  # Transpile the Win32 resource file
+  find_package(PHP REQUIRED)
+  add_custom_command(
+    OUTPUT  resource.rc_mac_dlg resource.rc_mac_menu
+    COMMAND ${CMAKE_COMMAND} -E copy
+      ${CMAKE_CURRENT_SOURCE_DIR}/resource.rc ${CMAKE_CURRENT_BINARY_DIR}
+    COMMAND ${PHP_EXECUTABLE} ${SWELL_RESGEN} --quiet resource.rc
+    DEPENDS ${SWELL_RESGEN}
+    MAIN_DEPENDENCY resource.rc
+  )
+endif()
 
 if(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
   if(WIN32)
@@ -19,7 +98,7 @@ if(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
   endif()
 
   set(CMAKE_INSTALL_PREFIX "${USER_CONFIG_DIR}/REAPER" CACHE PATH
-    "REAPER resource path where to install reasolotus" FORCE)
+    "REAPER resource path where to install ReaPack" FORCE)
 endif()
 
 if(CMAKE_OSX_ARCHITECTURES)
@@ -32,140 +111,73 @@ endif()
 
 STRING(TOLOWER "${ARCH_NAME}" ARCH_NAME)
 
-set(CMAKE_CXX_EXTENSIONS OFF)
-set(CMAKE_CXX_STANDARD 20)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
-set(CMAKE_CXX_VISIBILITY_PRESET "hidden")
-set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
-set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+# set(CMAKE_CXX_EXTENSIONS OFF)
+# set(CMAKE_CXX_STANDARD_REQUIRED ON)
+# set(CMAKE_CXX_VISIBILITY_PRESET "hidden")
+# set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+# set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
-set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_MINSIZEREL     ON)
-set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE        ON)
-set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELWITHDEBINFO ON)
+# set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_MINSIZEREL     ON)
+# set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE        ON)
+# set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELWITHDEBINFO ON)
 
 if(VCPKG_TOOLCHAIN)
   set(CMAKE_MAP_IMPORTED_CONFIG_MINSIZEREL Release)
   set(CMAKE_MAP_IMPORTED_CONFIG_RELWITHDEBINFO Release)
 endif()
 
-if(NOT EXISTS ${PROJECT_SOURCE_DIR}/external/reaper-sdk/README)
-    execute_process(
-      COMMAND ${GIT_EXECUTABLE} submodule update --init --recursive --depth 1 
-      WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}
-      )
-endif()
+# if(WIN32)
+  # foreach(arg
+  #   CMAKE_C_FLAGS_DEBUG CMAKE_CXX_FLAGS_DEBUG
+  #   CMAKE_C_FLAGS_RELEASE CMAKE_CXX_FLAGS_RELEASE
+  #   CMAKE_C_FLAGS_RELWITHDEBINFO CMAKE_CXX_FLAGS_RELWITHDEBINFO
+  #   CMAKE_C_FLAGS_MINSIZEREL CMAKE_CXX_FLAGS_MINSIZEREL
+  # )
+  #   # Embed debug information in the object files
+  #   string(REGEX REPLACE "/Z[iI]" "/Z7" ${arg} "${${arg}}")
+  # endforeach()
 
-if(WIN32)
-  foreach(arg
-    CMAKE_C_FLAGS_DEBUG CMAKE_CXX_FLAGS_DEBUG
-    CMAKE_C_FLAGS_RELEASE CMAKE_CXX_FLAGS_RELEASE
-    CMAKE_C_FLAGS_RELWITHDEBINFO CMAKE_CXX_FLAGS_RELWITHDEBINFO
-    CMAKE_C_FLAGS_MINSIZEREL CMAKE_CXX_FLAGS_MINSIZEREL
-  )
-    # Embed debug information in the object files
-    string(REGEX REPLACE "/Z[iI]" "/Z7" ${arg} "${${arg}}")
+#   add_compile_options(
+#     # Exception handling model
+#     /EHsc
 
-    # Allow expansion of function not explicitly marked for no inlining
-    string(REGEX REPLACE "/Ob1" "/Ob2" ${arg} "${${arg}}")
-  endforeach()
+#     # Enhance optimized debugging
+#     $<$<NOT:$<CONFIG:Debug>>:/Zo>
 
-  add_compile_options(
-    /utf-8
-    # Exception handling model
-    /EHsc
+#     # Eliminate duplicate strings
+#     $<$<NOT:$<CONFIG:Debug>>:/GF>
 
-    # Enhance optimized debugging
-    $<$<NOT:$<CONFIG:Debug>>:/Zo>
+#     # Enable function-level linking
+#     $<$<NOT:$<CONFIG:Debug>>:/Gy>
 
-    # Eliminate duplicate strings
-    $<$<NOT:$<CONFIG:Debug>>:/GF>
+#     # Remove unreferenced COMDAT
+#     $<$<NOT:$<CONFIG:Debug>>:/Zc:inline>
+#   )
 
-    # Enable function-level linking
-    $<$<NOT:$<CONFIG:Debug>>:/Gy>
+#   add_link_options(
+#     # Remove unreferenced code
+#     $<$<NOT:$<CONFIG:Debug>>:/OPT:REF>
 
-    # Remove unreferenced COMDAT
-    $<$<NOT:$<CONFIG:Debug>>:/Zc:inline>
-  )
+#     # Remove duplicate sections
+#     $<$<NOT:$<CONFIG:Debug>>:/OPT:ICF>
 
-  add_link_options(
-    # Remove unreferenced code
-    $<$<NOT:$<CONFIG:Debug>>:/OPT:REF>
-
-    # Remove duplicate sections
-    $<$<NOT:$<CONFIG:Debug>>:/OPT:ICF>
-
-    # Use relative path to the PDB file to avoid exposing the full path
-    # /PDBALTPATH:%_PDB%
-  )
-else()
-  add_compile_options(
-    -fsigned-char -fstack-protector-strong -fdiagnostics-color
-  )
-
-  if(APPLE)
-    add_link_options(-Wl,-dead_strip)
-  endif()
-
-  check_linker_flag(CXX -Wl,--no-undefined HAVE_NO_UNDEFINED)
-  if(HAVE_NO_UNDEFINED)
-    add_link_options(-Wl,--no-undefined)
-  endif()
-endif()
-
-add_library(common INTERFACE)
-target_include_directories(
-  common SYSTEM INTERFACE
-  ${CMAKE_SOURCE_DIR}/extneral
-  ${CMAKE_SOURCE_DIR}/external/reaper-sdk/sdk)
-if(WIN32)
-  target_compile_options(common INTERFACE
-    /W3
-    /WX
-    )
-    target_compile_definitions(common INTERFACE NOMINMAX UNICODE)
-else()
-  target_compile_options(common INTERFACE
-    -Wall -Wextra -Wpedantic -Werror
-  )
-endif()
-
-check_include_file_cxx(optional HAS_STD_OPTIONAL)
-if(HAS_STD_OPTIONAL)
-  target_compile_definitions(common INTERFACE HAS_STD_OPTIONAL)
-endif()
-
-check_include_file_cxx(variant HAS_STD_VARIANT)
-if(HAS_STD_VARIANT)
-  target_compile_definitions(common INTERFACE HAS_STD_VARIANT)
-endif()
-
-add_library(${PROJECT_NAME} SHARED)
+#     # Use relative path to the PDB file to avoid exposing the full path
+#     /PDBALTPATH:%_PDB%
+#   )
+# else()
+#   add_compile_options(-fsigned-char -fstack-protector-strong -fdiagnostics-color)
+# endif()
 
 set_target_properties(${PROJECT_NAME} PROPERTIES
   PREFIX "" # disable the "lib" prefix
-  OUTPUT_NAME "${PROJECT_NAME}-${ARCH_NAME}"
+  OUTPUT_NAME "reaper_${PROJECT_NAME}-${ARCH_NAME}"
 )
-set(REAPER_USER_PLUGINS "UserPlugins")
 
+add_subdirectory(src)
+
+set(REAPER_USER_PLUGINS "UserPlugins")
 install(TARGETS ${PROJECT_NAME}
-  CONFIGURATIONS Debug Release
+  COMPONENT ${PROJECT_NAME}
   RUNTIME DESTINATION "${REAPER_USER_PLUGINS}" # Windows .dll
   LIBRARY DESTINATION "${REAPER_USER_PLUGINS}" # Linux .so/macOS .dylib
 )
-
-if(WIN32)
-  install(FILES $<TARGET_PDB_FILE:${PROJECT_NAME}> DESTINATION "${REAPER_USER_PLUGINS}" OPTIONAL)
-endif()
-
-add_subdirectory(${CMAKE_SOURCE_DIR}/src)
-target_link_libraries(reasolotus common)
-target_link_libraries(${PROJECT_NAME} reasolotus)
-
-find_package(WDL REQUIRED)
-target_link_libraries(reasolotus WDL::WDL)
-
-if(NOT WIN32)
-  find_package(SWELL REQUIRED)
-  target_link_libraries(reasolotus SWELL::swell)
-endif()
-
