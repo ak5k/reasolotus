@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.15)
 
-project(reasolotus VERSION 0.1.7 LANGUAGES CXX)
+project(reasolotus VERSION 0.1.7 LANGUAGES C CXX)
 
 include(FetchContent)
 include(CheckCompilerFlag)
