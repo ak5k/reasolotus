@@ -29,10 +29,13 @@ furnished to / do so, subject to the following conditions:
 #include <reaper_plugin_functions.h>
 #include <stdio.h>
 
-template <>
-void ConfigVar<int>::save()
+namespace reasolotus
 {
-    char buf[12];
-    snprintf(buf, sizeof(buf), "%d", *m_addr);
-    WritePrivateProfileString("REAPER", m_name, buf, get_ini_file());
+
+template <> void ConfigVar<int>::save()
+{
+  char buf[12];
+  snprintf(buf, sizeof(buf), "%d", *m_addr);
+  WritePrivateProfileString("REAPER", m_name, buf, get_ini_file());
 }
+} // namespace reasolotus
