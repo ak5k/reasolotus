@@ -9,7 +9,7 @@ build_script:
   - cmake --build build
 
 for:
-  - matrix: { only: [ appveyor_build_worker_image: &linux Ubuntu2204 ] }
+  - matrix: { only: [ appveyor_build_worker_image: &linux Ubuntu1804 ] }
     cache:
       - build/vcpkg_installed -> vcpkg.json, cmake/vcpkg-triplets/arch-env.cmake
     install: |-
@@ -53,7 +53,7 @@ for:
     artifacts:
       - path: build/reaper_*.so
 
-  - matrix: { only: [ appveyor_build_worker_image: &macos macos-ventura ] }
+  - matrix: { only: [ appveyor_build_worker_image: &macos macos-catalina ] }
     cache:
       - build/vcpkg_installed -> vcpkg.json, cmake/vcpkg-triplets/arch-env.cmake
     install:
