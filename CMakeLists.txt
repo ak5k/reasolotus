@@ -94,7 +94,7 @@ add_library(${PROJECT_NAME} SHARED)
 add_subdirectory(src)
 target_link_libraries(${PROJECT_NAME} PRIVATE reaper-sdk)
 
-set_property(TARGET ${PROJECT_NAME} PROPERTY CXX_STANDARD 17)
+set_property(TARGET ${PROJECT_NAME} PROPERTY CXX_STANDARD 23)
 
 if(WIN32)
   add_compile_definitions(NOMINMAX _CRT_SECURE_NO_WARNINGS _CRT_NONSTDC_NO_DEPRECATE)
