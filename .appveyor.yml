@@ -59,7 +59,7 @@ for:
     install:
       - |-
         echo " "
-        brew install php
+        # brew install php
 
     artifacts:
       - path: build/reaper_*.dylib
