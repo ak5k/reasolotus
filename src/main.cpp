@@ -617,7 +617,6 @@ void ShutDown()
         (MediaTrack*)(uintptr_t)GetTrackSendInfo_Value(tr, 0, i, "P_DESTTRACK");
       if (dst == solobus)
       {
-        auto isMuted = (bool)GetTrackSendInfo_Value(tr, 0, i, "B_MUTE");
         SetTrackSendInfo_Value(tr, 0, i, "B_MUTE", 1);
       }
     }
