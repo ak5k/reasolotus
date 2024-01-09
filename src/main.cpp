@@ -2,7 +2,9 @@
 #include <atomic>
 #include <mutex>
 #include <set>
+#include <sstream>
 #include <string>
+#include <unordered_map>
 #include <vector>
 #define REAPERAPI_IMPLEMENT
 #include <reaper_plugin_functions.h>
@@ -329,11 +331,127 @@ void DoSolo(std::set<MediaTrack*>& queue)
   PreventUIRefresh(-1);
 }
 
+std::unordered_map<MediaTrack*, std::vector<MediaTrack*>> mutedSends{};
+
+template <typename T>
+void removeFirst(std::vector<T>& vec, const T& element)
+{
+  auto it = std::find(vec.begin(), vec.end(), element);
+  if (it != vec.end())
+  {
+    vec.erase(it);
+  }
+}
+
+template <typename T>
+bool hasElement(const std::vector<T>& vec, const T& element)
+{
+  return std::find(vec.begin(), vec.end(), element) != vec.end();
+}
+
+std::string GUIDToString(GUID* guid)
+{
+  char buf[BUFSIZ];
+  guidToString(guid, buf);
+  return buf;
+}
+
+std::string serializeMap(
+  const std::unordered_map<MediaTrack*, std::vector<MediaTrack*>>& map)
+{
+  std::ostringstream oss;
+  for (const auto& pair : map)
+  {
+    oss << GUIDToString(GetTrackGUID(pair.first)) << ":";
+    for (const auto& element : pair.second)
+    {
+      oss << GUIDToString(GetTrackGUID(element)) << ",";
+    }
+    oss << ";";
+  }
+  return oss.str();
+}
+
+MediaTrack* stringToTrack(const std::string& str)
+{
+  for (int i = 0; i < GetNumTracks(); i++)
+  {
+    auto* tr = GetTrack(0, i);
+    auto* g = GetTrackGUID(tr);
+    char buf[BUFSIZ];
+    guidToString(g, buf);
+    if (buf == str)
+    {
+      return tr;
+    }
+  }
+  return nullptr;
+}
+
+std::unordered_map<MediaTrack*, std::vector<MediaTrack*>> deserializeMap(
+  const std::string& str)
+{
+  std::unordered_map<MediaTrack*, std::vector<MediaTrack*>> map;
+  std::istringstream iss(str);
+  std::string line;
+  while (std::getline(iss, line, ';'))
+  {
+    std::istringstream lineStream(line);
+    std::string trackStr;
+    std::getline(lineStream, trackStr, ':');
+    MediaTrack* key = stringToTrack(trackStr);
+    if (key == nullptr)
+    {
+      // Handle error
+      continue;
+    }
+    std::vector<MediaTrack*> value;
+    while (std::getline(lineStream, trackStr, ','))
+    {
+      MediaTrack* track = stringToTrack(trackStr);
+      if (track != nullptr)
+      {
+        value.push_back(track);
+      }
+    }
+    map[key] = value;
+  }
+  return map;
+}
+
+void StoreStringToProjExtState(const std::string& key, const std::string& str)
+{
+  SetProjExtState(0, EXTNAME, key.c_str(), std::string(str + "#").c_str());
+}
+
+std::string LoadStringFromProjExtState(const std::string& key)
+{
+  static int bufSize = BUFSIZ;
+  char* buf = new char[bufSize];
+  GetProjExtState(0, EXTNAME, key.c_str(), buf, bufSize);
+  std::string str = buf;
+  while (!str.empty() && str.find('#') == std::string::npos)
+  {
+    delete[] buf;
+    buf = nullptr;
+    bufSize = bufSize * 2;
+    buf = new char[bufSize];
+    GetProjExtState(0, EXTNAME, key.c_str(), buf, bufSize);
+    str = buf;
+  }
+  delete[] buf;
+  buf = nullptr;
+  return str.substr(0, str.find('#'));
+}
+
 void DoMute(MediaTrack* tr, bool mute)
 {
   PreventUIRefresh(1);
-  (void)GetMixbus();
+  // auto* mixbus = GetMixbus();
   auto* solobus = GetSolobus();
+  auto str = LoadStringFromProjExtState("mutedSends");
+  mutedSends = deserializeMap(str);
+
   for (int i = 0; i < GetTrackNumSends(tr, 0); i++)
   {
     auto* dst =
@@ -344,15 +462,21 @@ void DoMute(MediaTrack* tr, bool mute)
       if (!isMuted && mute)
       {
         SetTrackSendInfo_Value(tr, 0, i, "B_MUTE", 1);
+        mutedSends[tr].push_back(dst);
       }
-      else if (isMuted && !mute)
+      else if (isMuted && !mute && hasElement(mutedSends[tr], dst))
       {
         SetTrackSendInfo_Value(tr, 0, i, "B_MUTE", 0);
+        removeFirst(mutedSends[tr], dst);
       }
     }
   }
+  str = serializeMap(mutedSends);
+  StoreStringToProjExtState("mutedSends", str);
   PreventUIRefresh(-1);
 }
+
+void ShutDown();
 
 static bool CommandHook(KbdSectionInfo* sec, const int command, const int val,
                         const int valhw, const int relmode, HWND hwnd)
@@ -367,6 +491,10 @@ static bool CommandHook(KbdSectionInfo* sec, const int command, const int val,
   if (command == solotus_command_id)
   {
     solotus_state = !solotus_state;
+    if (!solotus_state)
+    {
+      ShutDown();
+    }
     return true;
   }
 
@@ -476,29 +604,48 @@ public:
   }
 };
 
+void ShutDown()
+{
+  auto* solobus = GetSolobus();
+  for (int i = 0; i < GetNumTracks(); i++)
+  {
+    auto* tr = GetTrack(0, i);
+    DoMute(tr, false);
+    for (int i = 0; i < GetTrackNumSends(tr, 0); i++)
+    {
+      auto* dst =
+        (MediaTrack*)(uintptr_t)GetTrackSendInfo_Value(tr, 0, i, "P_DESTTRACK");
+      if (dst == solobus)
+      {
+        SetTrackSendInfo_Value(tr, 0, i, "B_MUTE", 1);
+      }
+    }
+  }
+}
+
 } // namespace reasolotus
 
 reasolotus::ReaSolotus* csurf;
 
 extern "C"
 {
-  REAPER_PLUGIN_DLL_EXPORT int ReaperPluginEntry(
-    REAPER_PLUGIN_HINSTANCE hInstance, reaper_plugin_info_t* rec)
+REAPER_PLUGIN_DLL_EXPORT int ReaperPluginEntry(
+  REAPER_PLUGIN_HINSTANCE hInstance, reaper_plugin_info_t* rec)
+{
+  (void)hInstance;
+  csurf = new reasolotus::ReaSolotus();
+  if (!rec)
   {
-    (void)hInstance;
-    csurf = new reasolotus::ReaSolotus();
-    if (!rec)
-    {
-      delete csurf;
-      return 0;
-    }
-    if (rec->caller_version != REAPER_PLUGIN_VERSION ||
-        REAPERAPI_LoadAPI(rec->GetFunc))
-    {
-      return 0;
-    }
-    reasolotus::Register();
-    plugin_register("csurf_inst", csurf);
-    return 1;
+    delete csurf;
+    return 0;
   }
+  if (rec->caller_version != REAPER_PLUGIN_VERSION ||
+      REAPERAPI_LoadAPI(rec->GetFunc))
+  {
+    return 0;
+  }
+  reasolotus::Register();
+  plugin_register("csurf_inst", csurf);
+  return 1;
+}
 }
