@@ -558,12 +558,6 @@ public:
     {
       return;
     }
-    static MediaTrack* prevMaster = nullptr;
-    if (prevMaster != nullptr && prevMaster != master)
-    {
-      return;
-    }
-    prevMaster = master;
 
     atomic_bool_lock = true;
     std::set<MediaTrack*> queue{};
@@ -603,12 +597,6 @@ public:
     {
       return;
     }
-    static MediaTrack* prevMaster = nullptr;
-    if (prevMaster != nullptr && prevMaster != master)
-    {
-      return;
-    }
-    prevMaster = master;
 
     atomic_bool_lock = true;
     DoMute(trackid, mute);
