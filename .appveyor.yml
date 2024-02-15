@@ -9,7 +9,7 @@ build_script:
   - cmake --build build
 
 for:
-  - matrix: { only: [ appveyor_build_worker_image: &linux Ubuntu1804 ] }
+  - matrix: { only: [ appveyor_build_worker_image: &linux Ubuntu2204 ] }
     cache:
       - build/vcpkg_installed -> vcpkg.json, cmake/vcpkg-triplets/arch-env.cmake
     install: |-
@@ -28,8 +28,8 @@ for:
         sudo aptitude install -yR ${native[@]} > /dev/null
       }
 
-      sudo update-alternatives --set gcc /usr/bin/gcc-7
-      sudo apt-get install -qq --allow-downgrades libstdc++6=8.4.0-1ubuntu1~18.04 > /dev/null
+      # sudo update-alternatives --set gcc /usr/bin/gcc-7
+      # sudo apt-get install -qq --allow-downgrades libstdc++6=8.4.0-1ubuntu1~18.04 > /dev/null
 
       case $ARCH in
       x86_64)
