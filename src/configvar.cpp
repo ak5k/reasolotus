@@ -32,10 +32,11 @@ furnished to / do so, subject to the following conditions:
 namespace reasolotus
 {
 
-template <> void ConfigVar<int>::save()
+template <>
+void ConfigVar<int>::save()
 {
-  char buf[12];
-  snprintf(buf, sizeof(buf), "%d", *m_addr);
-  WritePrivateProfileString("REAPER", m_name, buf, get_ini_file());
+    char buf[12];
+    snprintf(buf, sizeof(buf), "%d", *m_addr);
+    WritePrivateProfileString("REAPER", m_name, buf, get_ini_file());
 }
 } // namespace reasolotus
