@@ -1,4 +1,5 @@
 // #include "reaper_vararg.hpp"
+#include <algorithm>
 #include <atomic>
 #include <mutex>
 #include <set>
