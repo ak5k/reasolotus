@@ -97,7 +97,7 @@ if(WIN32)
       /W3 /WX)
 endif()
 if(UNIX AND NOT APPLE)
-  target_compile_options(${PROJECT_NAME} PRIVATE -Wno-narrowing)
+  target_compile_options(${PROJECT_NAME} PRIVATE -fno-unsigned-char)
 endif()
 
 if(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
