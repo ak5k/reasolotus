@@ -102,12 +102,6 @@ if(WIN32)
     ${PROJECT_NAME}
       PRIVATE
       /W3 /WX)
-else()
-  target_compile_options(
-    ${PROJECT_NAME}
-      PRIVATE
-      -Wall -Wextra -Wpedantic
-  )
 endif()
 
 if(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
