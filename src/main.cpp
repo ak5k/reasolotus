@@ -197,6 +197,21 @@ void CreateSoloBus(MediaTrack* res)
     SetProjExtState(0, EXTNAME, "Solo", buf);
 }
 
+void SendAllChannels(int trackSendId, MediaTrack *sendTrack, MediaTrack *receiveTrack)
+{
+    int sendNumChannels = (int)GetMediaTrackInfo_Value(sendTrack, "I_NCHAN");
+    int receiveNumChannels = (int)GetMediaTrackInfo_Value(receiveTrack, "I_NCHAN");
+
+    if (sendNumChannels > receiveNumChannels)
+        GetSetMediaTrackInfo(receiveTrack, "I_NCHAN", &sendNumChannels);
+
+    if (sendNumChannels > 2)
+    {
+        int chanFlag = (sendNumChannels << 9);
+        SetTrackSendInfo_Value(sendTrack, 0, trackSendId, "I_SRCCHAN", chanFlag);
+        SetTrackSendInfo_Value(sendTrack, 0, trackSendId, "I_SRCCHAN", chanFlag);
+    }
+}
 void Organize()
 {
     auto* master = GetMasterTrack(0);
@@ -216,11 +231,18 @@ void Organize()
             SetMediaTrackInfo_Value(tr, "B_SOLO_DEFEAT", 1);
 
         if (HasSend(tr, master) && tr != mixbus && tr != solobus && tr != master)
-            CreateTrackSend(tr, mixbus);
+        {
+            auto j = CreateTrackSend(tr, mixbus);
+
+            SendAllChannels(j, tr, mixbus);
+
+        }
+
 
         if (!HasSend(tr, solobus) && tr != solobus && tr != master)
         {
             auto j = CreateTrackSend(tr, solobus);
+            SendAllChannels(j, tr, solobus);
             SetTrackSendInfo_Value(tr, 0, j, "B_MUTE", (tr == mixbus) ? 0 : 1);
             SetTrackSendInfo_Value(tr, 0, j, "I_SENDMODE", 3);
         }
@@ -232,7 +254,10 @@ void Organize()
             folderFound = true;
             auto hasParentSend = GetMediaTrackInfo_Value(tr, "B_MAINSEND");
             if (!HasSend(tr, parent) && hasParentSend > 0)
-                CreateTrackSend(tr, parent);
+            {
+                auto j = CreateTrackSend(tr, parent);
+                SendAllChannels(j, tr, parent);
+            }
             for (int j = 0; j < GetTrackNumSends(tr, 0); j++)
             {
                 auto* dst = (MediaTrack*)(uintptr_t)GetTrackSendInfo_Value(tr, 0, j, "P_DESTTRACK");
