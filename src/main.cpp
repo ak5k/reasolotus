@@ -25,7 +25,9 @@ void CreateMixBus(MediaTrack*& res, GUID*& g, char buf[512]);
 
 int solotus_command_id{-1};
 int solotus_init_command_id{-1};
+int solotus_init_multichannel_command_id{-1};
 int solotus_state{0};
+bool solotus_multichannel{false};
 std::atomic_bool atomic_bool_lock{false};
 std::mutex m{};
 
@@ -233,8 +235,8 @@ void Organize()
         if (HasSend(tr, master) && tr != mixbus && tr != solobus && tr != master)
         {
             auto j = CreateTrackSend(tr, mixbus);
-
-            SendAllChannels(j, tr, mixbus);
+            if (solotus_multichannel)
+                SendAllChannels(j, tr, mixbus);
 
         }
 
@@ -242,9 +244,10 @@ void Organize()
         if (!HasSend(tr, solobus) && tr != solobus && tr != master)
         {
             auto j = CreateTrackSend(tr, solobus);
-            SendAllChannels(j, tr, solobus);
             SetTrackSendInfo_Value(tr, 0, j, "B_MUTE", (tr == mixbus) ? 0 : 1);
             SetTrackSendInfo_Value(tr, 0, j, "I_SENDMODE", 3);
+            if (solotus_multichannel)
+                SendAllChannels(j, tr, solobus);
         }
 
         auto* parent = GetParentTrack(tr);
@@ -256,7 +259,8 @@ void Organize()
             if (!HasSend(tr, parent) && hasParentSend > 0)
             {
                 auto j = CreateTrackSend(tr, parent);
-                SendAllChannels(j, tr, parent);
+                if (solotus_multichannel)
+                    SendAllChannels(j, tr, parent);
             }
             for (int j = 0; j < GetTrackNumSends(tr, 0); j++)
             {
@@ -509,6 +513,12 @@ static bool CommandHook(
 
     if (command == solotus_init_command_id)
     {
+        solotus_multichannel = false;
+        Initialize();
+        return true;
+    } else if (command == solotus_init_multichannel_command_id)
+    {
+        solotus_multichannel = true;
         Initialize();
         return true;
     }
@@ -541,6 +551,9 @@ void Register()
 
     custom_action_register_t actionInit{0, "AK5K_REASOLOTUS_INIT", "ReaSolotus Init", nullptr};
     solotus_init_command_id = plugin_register("custom_action", &actionInit);
+
+    custom_action_register_t actionInitMultichannel{0, "AK5K_REASOLOTUS_INIT_MULTICHANNEL", "ReaSolotus Init (MultiChannel Support)", nullptr};
+    solotus_init_multichannel_command_id = plugin_register("custom_action", &actionInitMultichannel);
 
     plugin_register("hookcommand2", (void*)&CommandHook);
     plugin_register("toggleaction", (void*)&ToggleActionCallback);
