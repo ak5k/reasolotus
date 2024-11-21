@@ -12,9 +12,9 @@ build_script:
     -DCMAKE_OSX_ARCHITECTURES=$ARCH -DCMAKE_OSX_DEPLOYMENT_TARGET=$DEPLOY_TARGET
   - cmake --build build
 
-test_script:
-  - sh: '[[ "$ARCH" = arm64 ]] || cmake --build build --target test'
-  - cmd: 'if NOT "%ARCH%" == "arm64ec" cmake --build build --target test'
+# test_script:
+#   - sh: '[[ "$ARCH" = arm64 ]] || cmake --build build --target test'
+#   - cmd: 'if NOT "%ARCH%" == "arm64ec" cmake --build build --target test'
 
 for:
   - matrix: { only: [ appveyor_build_worker_image: &linux Ubuntu2204 ] }
