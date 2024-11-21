@@ -7,7 +7,7 @@ set(CMAKE_CXX_VISIBILITY_PRESET "hidden")
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
-# path for external 3rd party library dependencies 
+# path for external 3rd party library dependencies
 include(FetchContent)
 set(PROJECT_LIB_DIR ${PROJECT_SOURCE_DIR}/lib)
 
@@ -49,7 +49,7 @@ if(DEFINED ENV{VCPKG_DEFAULT_TRIPLET} AND NOT DEFINED VCPKG_TARGET_TRIPLET)
   set(VCPKG_TARGET_TRIPLET "$ENV{VCPKG_DEFAULT_TRIPLET}" CACHE STRING "")
 endif()
 
-FILE(GLOB header_paths 
+FILE(GLOB header_paths
     ${PROJECT_LIB_DIR}/*/include
     ${PROJECT_LIB_DIR}/*/sdk
     )
@@ -99,15 +99,9 @@ set_property(TARGET ${PROJECT_NAME} PROPERTY CXX_STANDARD 23)
 if(WIN32)
   add_compile_definitions(NOMINMAX _CRT_SECURE_NO_WARNINGS _CRT_NONSTDC_NO_DEPRECATE)
   target_compile_options(
-    ${PROJECT_NAME} 
-      PRIVATE 
-      /W3 /WX)
-else()
-  target_compile_options(
     ${PROJECT_NAME}
       PRIVATE
-      -Wall -Wextra -Werror -Wpedantic 
-  )
+      /W3 /WX)
 endif()
 
 if(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
