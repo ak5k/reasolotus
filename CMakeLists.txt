@@ -11,12 +11,6 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 include(FetchContent)
 set(PROJECT_LIB_DIR ${PROJECT_SOURCE_DIR}/lib)
 
-FetchContent_Declare(GSL
-    GIT_REPOSITORY "https://github.com/microsoft/GSL"
-    GIT_TAG        "origin/main"
-    SOURCE_DIR     "${PROJECT_LIB_DIR}/GSL"
-)
-
 FetchContent_Declare(WDL
     GIT_REPOSITORY https://github.com/justinfrankel/WDL
     GIT_TAG        "origin/main" # or specify a tag or branch here
@@ -29,7 +23,7 @@ FetchContent_Declare(reaper-sdk
     SOURCE_DIR     "${PROJECT_LIB_DIR}/reaper-sdk"
     )
 
-FetchContent_MakeAvailable(GSL WDL reaper-sdk)
+FetchContent_MakeAvailable(WDL reaper-sdk)
 
 # symlink WDL to reaper-sdk
 execute_process(
@@ -56,7 +50,6 @@ FILE(GLOB header_paths
 
 add_library(reaper-sdk IMPORTED INTERFACE)
 target_include_directories(reaper-sdk INTERFACE ${header_paths})
-target_link_libraries(reaper-sdk INTERFACE GSL)
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 
