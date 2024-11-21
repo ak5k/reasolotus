@@ -26,9 +26,9 @@ furnished to / do so, subject to the following conditions:
 ******************************************************************************/
 
 #pragma once
-#ifndef _WIN32
-    #include<wdltypes.h>
-#endif
+
+#include <WDL/wdltypes.h>
+
 #include <reaper_plugin_functions.h>
 
 namespace reasolotus
@@ -37,7 +37,7 @@ namespace reasolotus
 template <typename T>
 class ConfigVar
 {
-  public:
+public:
     explicit ConfigVar(const char* name, ReaProject* project = nullptr)
         : m_name{name}
         , m_addr{}
@@ -95,7 +95,7 @@ class ConfigVar
 
     void save();
 
-  private:
+private:
     const char* m_name;
     T* m_addr;
 };
@@ -103,7 +103,7 @@ class ConfigVar
 template <typename T>
 class ConfigVarOverride
 {
-  public:
+public:
     ConfigVarOverride(ConfigVar<T> var, const T tempValue)
         : m_var{var}
     {
@@ -124,7 +124,7 @@ class ConfigVarOverride
         rollback();
     }
 
-  private:
+private:
     ConfigVar<T> m_var;
     T m_initialValue;
 };

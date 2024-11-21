@@ -8,9 +8,9 @@
 #include <unordered_map>
 #include <vector>
 #define REAPERAPI_IMPLEMENT
-#ifndef _WIN32
-    #include<wdltypes.h>
-#endif
+
+#include <WDL/wdltypes.h>
+
 #include <reaper_plugin_functions.h>
 
 #include "configvar.h"
@@ -199,7 +199,7 @@ void CreateSoloBus(MediaTrack* res)
     SetProjExtState(0, EXTNAME, "Solo", buf);
 }
 
-void SendAllChannels(int trackSendId, MediaTrack *sendTrack, MediaTrack *receiveTrack)
+void SendAllChannels(int trackSendId, MediaTrack* sendTrack, MediaTrack* receiveTrack)
 {
     int sendNumChannels = (int)GetMediaTrackInfo_Value(sendTrack, "I_NCHAN");
     int receiveNumChannels = (int)GetMediaTrackInfo_Value(receiveTrack, "I_NCHAN");
@@ -214,6 +214,7 @@ void SendAllChannels(int trackSendId, MediaTrack *sendTrack, MediaTrack *receive
         SetTrackSendInfo_Value(sendTrack, 0, trackSendId, "I_SRCCHAN", chanFlag);
     }
 }
+
 void Organize()
 {
     auto* master = GetMasterTrack(0);
@@ -237,9 +238,7 @@ void Organize()
             auto j = CreateTrackSend(tr, mixbus);
             if (solotus_multichannel)
                 SendAllChannels(j, tr, mixbus);
-
         }
-
 
         if (!HasSend(tr, solobus) && tr != solobus && tr != master)
         {
@@ -516,7 +515,8 @@ static bool CommandHook(
         solotus_multichannel = false;
         Initialize();
         return true;
-    } else if (command == solotus_init_multichannel_command_id)
+    }
+    else if (command == solotus_init_multichannel_command_id)
     {
         solotus_multichannel = true;
         Initialize();
@@ -552,7 +552,9 @@ void Register()
     custom_action_register_t actionInit{0, "AK5K_REASOLOTUS_INIT", "ReaSolotus Init", nullptr};
     solotus_init_command_id = plugin_register("custom_action", &actionInit);
 
-    custom_action_register_t actionInitMultichannel{0, "AK5K_REASOLOTUS_INIT_MULTICHANNEL", "ReaSolotus Init (MultiChannel Support)", nullptr};
+    custom_action_register_t actionInitMultichannel{
+        0, "AK5K_REASOLOTUS_INIT_MULTICHANNEL", "ReaSolotus Init (MultiChannel Support)", nullptr
+    };
     solotus_init_multichannel_command_id = plugin_register("custom_action", &actionInitMultichannel);
 
     plugin_register("hookcommand2", (void*)&CommandHook);
@@ -561,7 +563,7 @@ void Register()
 
 class ReaSolotus : public IReaperControlSurface
 {
-  public:
+public:
     const char* GetTypeString() override
     {
         return "REASOLOTUS";
