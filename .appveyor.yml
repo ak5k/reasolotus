@@ -64,7 +64,7 @@ for:
         ;;
       esac
     artifacts:
-      - path: build/reaper_reapack*.so
+      - path: build/reaper_*.so
 
   - matrix: { only: [ appveyor_build_worker_image: macos-bigsur, appveyor_build_worker_image: macos-mojave ] }
     cache:
