@@ -26,6 +26,9 @@ furnished to / do so, subject to the following conditions:
 ******************************************************************************/
 
 #pragma once
+#ifndef _WIN32
+    #include<wdltypes.h>
+#endif
 #include <reaper_plugin_functions.h>
 
 namespace reasolotus

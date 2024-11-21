@@ -8,6 +8,9 @@
 #include <unordered_map>
 #include <vector>
 #define REAPERAPI_IMPLEMENT
+#ifndef _WIN32
+    #include<wdltypes.h>
+#endif
 #include <reaper_plugin_functions.h>
 
 #include "configvar.h"
