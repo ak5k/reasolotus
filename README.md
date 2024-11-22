@@ -12,6 +12,7 @@
 * REAPER Master track is used as control room / headphones output.
 * Mix track is main / program / PA / stream / tape output. Freely assignable to any hardware output(s).
 * Creating separate live mixing projects is recommended.
+* Projects need to be initialized with ReaSolotus Init Actions.
 * Tracks are soloed as PFL (post-fx).
 * If no tracks are soloed then Mix is monitored.
 
