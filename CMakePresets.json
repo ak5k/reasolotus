@@ -1,0 +1,44 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": {
+    "major": 4,
+    "minor": 0,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "windows-msvc-ninja-base",
+      "hidden": true,
+      "generator": "Ninja Multi-Config",
+      "binaryDir": "${sourceDir}/build/windows-msvc-ninja",
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Windows"
+      },
+      "cacheVariables": {
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
+      }
+    },
+    {
+      "name": "windows-msvc-ninja-debug",
+      "inherits": "windows-msvc-ninja-base"
+    },
+    {
+      "name": "windows-msvc-ninja-release",
+      "inherits": "windows-msvc-ninja-base"
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "windows-msvc-ninja-debug",
+      "configurePreset": "windows-msvc-ninja-debug",
+      "configuration": "Debug"
+    },
+    {
+      "name": "windows-msvc-ninja-release",
+      "configurePreset": "windows-msvc-ninja-release",
+      "configuration": "Release"
+    }
+  ]
+}

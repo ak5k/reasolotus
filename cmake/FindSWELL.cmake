@@ -4,9 +4,23 @@ endif()
 
 find_package(WDL REQUIRED)
 
+set(_SWELL_SEARCH_PATHS)
+
+if(DEFINED WDL_DIR)
+  list(APPEND _SWELL_SEARCH_PATHS "${WDL_DIR}")
+endif()
+
+if(DEFINED REASOLOTUS_WDL_SOURCE_DIR)
+  list(APPEND _SWELL_SEARCH_PATHS "${REASOLOTUS_WDL_SOURCE_DIR}/WDL")
+endif()
+
+if(DEFINED WDL_ROOT_DIR)
+  list(APPEND _SWELL_SEARCH_PATHS "${WDL_ROOT_DIR}/WDL")
+endif()
+
 find_path(SWELL_INCLUDE_DIR
   NAMES swell/swell.h
-  PATHS ${WDL_DIR}
+  PATHS ${_SWELL_SEARCH_PATHS}
   NO_DEFAULT_PATH
 )
 mark_as_advanced(SWELL_INCLUDE_DIR)
@@ -26,6 +40,6 @@ if(APPLE)
 endif()
 
 target_compile_definitions(swell PUBLIC  SWELL_PROVIDED_BY_APP)
-target_include_directories(swell INTERFACE ${SWELL_INCLUDE_DIR})
+target_include_directories(swell SYSTEM INTERFACE ${SWELL_INCLUDE_DIR})
 
 add_library(SWELL::swell ALIAS swell)
