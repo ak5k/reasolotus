@@ -1,0 +1,241 @@
+name: Build Matrix
+
+on:
+  workflow_call:
+    inputs:
+      checkout_ref:
+        description: Optional git ref to checkout
+        required: false
+        default: ""
+        type: string
+      build_type:
+        description: CMake build type for Unix builds
+        required: false
+        default: Debug
+        type: string
+      artifact_prefix:
+        description: Optional artifact name prefix
+        required: false
+        default: ""
+        type: string
+      cache_key_prefix:
+        description: Optional cache key prefix
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-x86_64
+            os: ubuntu-latest
+            platform: linux
+            arch: x86_64
+          - name: linux-aarch64
+            os: ubuntu-latest
+            platform: linux
+            arch: aarch64
+          - name: windows-x64
+            os: windows-latest
+            platform: windows
+            arch: x64
+            msvc_arch: x64
+          - name: windows-arm64ec
+            os: windows-latest
+            platform: windows
+            arch: arm64ec
+            msvc_arch: amd64_arm64
+          - name: macos-x86_64
+            os: macos-latest
+            platform: macos
+            arch: x86_64
+          - name: macos-arm64
+            os: macos-latest
+            platform: macos
+            arch: arm64
+
+    env:
+      ARCH: ${{ matrix.arch }}
+      WINDOWS_BUILD_DIR: build
+
+    steps:
+      - name: Checkout (default ref)
+        if: inputs.checkout_ref == ''
+        uses: actions/checkout@v4
+
+      - name: Checkout (requested ref)
+        if: inputs.checkout_ref != ''
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.checkout_ref }}
+
+      - name: Setup Homebrew
+        if: runner.os == 'macOS'
+        uses: Homebrew/actions/setup-homebrew@master
+
+      - name: Install Unix dependencies
+        if: matrix.platform == 'linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          configure_arm64_sources() {
+            . /etc/os-release
+
+            if [ -f /etc/apt/sources.list.d/ubuntu.sources ]; then
+              printf '%s\n' \
+                'Types: deb' \
+                'Architectures: amd64 i386' \
+                'URIs: http://archive.ubuntu.com/ubuntu/' \
+                "Suites: ${VERSION_CODENAME} ${VERSION_CODENAME}-updates" \
+                'Components: main universe restricted multiverse' \
+                'Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg' \
+                | sudo tee /etc/apt/sources.list.d/ubuntu.sources > /dev/null
+
+              printf '%s\n' \
+                'Types: deb' \
+                'Architectures: arm64' \
+                'URIs: http://ports.ubuntu.com/ubuntu-ports/' \
+                "Suites: ${VERSION_CODENAME} ${VERSION_CODENAME}-updates" \
+                'Components: main universe restricted multiverse' \
+                'Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg' \
+                | sudo tee /etc/apt/sources.list.d/ubuntu-ports.sources > /dev/null
+            fi
+          }
+
+          case "$ARCH" in
+            x86_64)
+              sudo apt-get update
+              sudo apt-get install -y cmake g++
+              ;;
+            aarch64)
+              sudo dpkg --add-architecture arm64
+              configure_arm64_sources
+              sudo rm -rf /var/lib/apt/lists/*
+              sudo apt-get update
+              sudo apt-get install -y cmake g++-aarch64-linux-gnu
+              {
+                echo "TOOLCHAIN=${GITHUB_WORKSPACE}/cmake/linux-cross.cmake"
+                echo "TOOLCHAIN_PREFIX=aarch64-linux-gnu"
+              } >> "$GITHUB_ENV"
+              ;;
+            *)
+              echo "Unsupported ARCH: $ARCH" >&2
+              exit 1
+              ;;
+          esac
+
+      - name: Install macOS dependencies
+        if: matrix.platform == 'macos'
+        shell: bash
+        run: |
+          set -euo pipefail
+          brew update
+          brew install cmake
+          echo "DEPLOY_TARGET=12.0" >> "$GITHUB_ENV"
+
+      - name: Install Windows dependencies
+        if: matrix.platform == 'windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          choco install cmake ninja --yes --no-progress
+          cmake --version
+          ninja --version
+
+      - name: Cache third-party sources
+        uses: actions/cache@v4
+        with:
+          path: |
+            _deps
+          key: >-
+            ${{ inputs.cache_key_prefix }}${{ runner.os }}-${{ matrix.arch }}-${{ hashFiles('CMakeLists.txt', 'cmake/**/*.cmake') }}
+
+      - name: Setup MSVC environment
+        if: matrix.platform == 'windows'
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: ${{ matrix.msvc_arch }}
+
+      - name: Setup ARM64EC flags
+        if: matrix.platform == 'windows' && matrix.arch == 'arm64ec'
+        shell: pwsh
+        run: |
+          'CFLAGS=-arm64EC' | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          'CXXFLAGS=-arm64EC' | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Configure Unix
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake_args=(
+            -S .
+            -B build
+            -DCMAKE_BUILD_TYPE=${{ inputs.build_type }}
+          )
+
+          if [ "$RUNNER_OS" = 'macOS' ]; then
+            cmake_args+=("-DCMAKE_OSX_ARCHITECTURES=$ARCH")
+          fi
+
+          if [ -n "${DEPLOY_TARGET:-}" ]; then
+            cmake_args+=("-DCMAKE_OSX_DEPLOYMENT_TARGET=${DEPLOY_TARGET}")
+          fi
+
+          if [ -n "${TOOLCHAIN:-}" ]; then
+            cmake_args+=("-DCMAKE_TOOLCHAIN_FILE=${TOOLCHAIN}")
+          fi
+
+          cmake "${cmake_args[@]}"
+
+      - name: Configure Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: >-
+          cmake -S . -B ${{ env.WINDOWS_BUILD_DIR }}
+          -G "Ninja Multi-Config"
+
+      - name: Build Unix
+        if: runner.os != 'Windows'
+        shell: bash
+        run: cmake --build build
+
+      - name: Build Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: cmake --build ${{ env.WINDOWS_BUILD_DIR }} --config ${{ inputs.build_type }}
+
+      - name: Upload Linux artifacts
+        if: matrix.platform == 'linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.artifact_prefix != '' && format('{0}-{1}', inputs.artifact_prefix, matrix.name) || matrix.name }}
+          path: build/*.so
+          if-no-files-found: warn
+
+      - name: Upload macOS artifacts
+        if: matrix.platform == 'macos'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.artifact_prefix != '' && format('{0}-{1}', inputs.artifact_prefix, matrix.name) || matrix.name }}
+          path: build/*.dylib
+          if-no-files-found: warn
+
+      - name: Upload Windows artifacts
+        if: matrix.platform == 'windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.artifact_prefix != '' && format('{0}-{1}', inputs.artifact_prefix, matrix.name) || matrix.name }}
+          path: |
+            ${{ env.WINDOWS_BUILD_DIR }}/${{ inputs.build_type }}/*.dll
+            ${{ env.WINDOWS_BUILD_DIR }}/${{ inputs.build_type }}/*.pdb
+          if-no-files-found: warn
