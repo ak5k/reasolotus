@@ -25,13 +25,28 @@ void CreateMixBus(MediaTrack*& res, GUID*& g, char buf[512]);
 
 void Unregister();
 
-int solotus_command_id{-1};
-int solotus_init_command_id{-1};
-int solotus_init_multichannel_command_id{-1};
-int solotus_state{0};
-bool solotus_multichannel{false};
-std::atomic_bool atomic_bool_lock{false};
-std::mutex m{};
+struct ReaSolotusState
+{
+    ReaSolotusState()
+    {
+        projectStateText.reserve(BUFSIZ);
+        projectStateBuffer.resize(BUFSIZ);
+    }
+
+    int commandId{-1};
+    int initCommandId{-1};
+    int initMultichannelCommandId{-1};
+    int enabled{0};
+    bool multichannel{false};
+    std::atomic_bool callbackGuard{false};
+    std::mutex mutex{};
+    std::set<MediaTrack*> soloQueue{};
+    std::unordered_map<MediaTrack*, std::vector<MediaTrack*>> mutedSends{};
+    std::string projectStateText{};
+    std::vector<char> projectStateBuffer{};
+};
+
+ReaSolotusState state{};
 
 // from SWS/SNM extension
 /******************************************************************************
@@ -203,7 +218,7 @@ void CreateSoloBus(MediaTrack* res)
 
 void ConfigureSendChannels(int trackSendId, MediaTrack* sendTrack, MediaTrack* receiveTrack)
 {
-    if (!solotus_multichannel)
+    if (!state.multichannel)
         return;
 
     int sendNumChannels = (int)GetMediaTrackInfo_Value(sendTrack, "I_NCHAN");
@@ -246,7 +261,7 @@ void Organize()
             SetMediaTrackInfo_Value(tr, "B_SOLO_DEFEAT", 1);
 
         if (HasSend(tr, master) && tr != mixbus && tr != solobus && tr != master)
-            auto j = CreateManagedSend(tr, mixbus);
+            CreateManagedSend(tr, mixbus);
 
         if (!HasSend(tr, solobus) && tr != solobus && tr != master)
         {
@@ -262,7 +277,7 @@ void Organize()
             folderFound = true;
             auto hasParentSend = GetMediaTrackInfo_Value(tr, "B_MAINSEND");
             if (!HasSend(tr, parent) && hasParentSend > 0)
-                auto j = CreateManagedSend(tr, parent);
+                CreateManagedSend(tr, parent);
             for (int j = 0; j < GetTrackNumSends(tr, 0); j++)
             {
                 auto* dst = (MediaTrack*)(uintptr_t)GetTrackSendInfo_Value(tr, 0, j, "P_DESTTRACK");
@@ -296,7 +311,7 @@ void Organize()
     ;
 }
 
-void DoSolo(std::set<MediaTrack*>& queue)
+void DoSolo()
 {
     auto* solobus = GetSolobus();
     auto* mixbus = GetMixbus();
@@ -309,10 +324,12 @@ void DoSolo(std::set<MediaTrack*>& queue)
 
     PreventUIRefresh(1);
     // Undo_BeginBlock2(0);
-    if (!queue.empty())
+    if (!state.soloQueue.empty())
         Organize();
 
-    for (auto&& tr : queue)
+    bool isMixbusSoloed = state.soloQueue.contains(mixbus);
+
+    for (auto* tr : state.soloQueue)
     {
         for (int i = 0; i < GetTrackNumSends(tr, 0); i++)
         {
@@ -325,7 +342,7 @@ void DoSolo(std::set<MediaTrack*>& queue)
     for (int i = 0; i < GetTrackNumSends(solobus, -1); i++)
     {
         auto* src = (MediaTrack*)(uintptr_t)GetTrackSendInfo_Value(solobus, -1, i, "P_SRCTRACK");
-        if (!queue.contains(src) && src != mixbus)
+        if (!state.soloQueue.contains(src) && src != mixbus)
         {
             auto isMuted = (bool)GetTrackSendInfo_Value(solobus, -1, i, "B_MUTE");
             if (!isMuted)
@@ -341,15 +358,13 @@ void DoSolo(std::set<MediaTrack*>& queue)
             auto isMuted = (bool)GetTrackSendInfo_Value(mixbus, 0, i, "B_MUTE");
             if (isMuted && !AnyTrackSolo(0))
                 SetTrackSendInfo_Value(mixbus, 0, i, "B_MUTE", 0);
-            else if (!isMuted && AnyTrackSolo(0))
+            else if (!isMuted && AnyTrackSolo(0) && !isMixbusSoloed)
                 SetTrackSendInfo_Value(mixbus, 0, i, "B_MUTE", 1);
         }
     }
     // Undo_EndBlock2(0, "ReaSolotus", 0);
     PreventUIRefresh(-1);
 }
-
-std::unordered_map<MediaTrack*, std::vector<MediaTrack*>> mutedSends{};
 
 template <typename T>
 void removeFirst(std::vector<T>& vec, const T& element)
@@ -365,27 +380,14 @@ bool hasElement(const std::vector<T>& vec, const T& element)
     return std::find(vec.begin(), vec.end(), element) != vec.end();
 }
 
-std::string GUIDToString(GUID* guid)
+void AppendGuidToProjectState(GUID* guid)
 {
     char buf[BUFSIZ];
     guidToString(guid, buf);
-    return buf;
+    state.projectStateText += buf;
 }
 
-std::string serializeMap(const std::unordered_map<MediaTrack*, std::vector<MediaTrack*>>& map)
-{
-    std::ostringstream oss;
-    for (const auto& pair : map)
-    {
-        oss << GUIDToString(GetTrackGUID(pair.first)) << ":";
-        for (const auto& element : pair.second)
-            oss << GUIDToString(GetTrackGUID(element)) << ",";
-        oss << ";";
-    }
-    return oss.str();
-}
-
-MediaTrack* stringToTrack(const std::string& str)
+MediaTrack* FindTrackByGuid(const char* guidText, size_t guidLength)
 {
     for (int i = 0; i < GetNumTracks(); i++)
     {
@@ -393,63 +395,105 @@ MediaTrack* stringToTrack(const std::string& str)
         auto* g = GetTrackGUID(tr);
         char buf[BUFSIZ];
         guidToString(g, buf);
-        if (buf == str)
+        if (strlen(buf) == guidLength && !strncmp(buf, guidText, guidLength))
             return tr;
     }
     return nullptr;
 }
 
-std::unordered_map<MediaTrack*, std::vector<MediaTrack*>> deserializeMap(const std::string& str)
+void SerializeMutedSends()
 {
-    std::unordered_map<MediaTrack*, std::vector<MediaTrack*>> map;
-    std::istringstream iss(str);
-    std::string line;
-    while (std::getline(iss, line, ';'))
+    state.projectStateText.clear();
+    for (const auto& pair : state.mutedSends)
     {
-        std::istringstream lineStream(line);
-        std::string trackStr;
-        std::getline(lineStream, trackStr, ':');
-        MediaTrack* key = stringToTrack(trackStr);
-        if (key == nullptr)
+        AppendGuidToProjectState(GetTrackGUID(pair.first));
+        state.projectStateText.push_back(':');
+        for (auto* element : pair.second)
         {
-            // Handle error
+            AppendGuidToProjectState(GetTrackGUID(element));
+            state.projectStateText.push_back(',');
+        }
+        state.projectStateText.push_back(';');
+    }
+}
+
+void DeserializeMutedSends(const std::string& str)
+{
+    state.mutedSends.clear();
+
+    size_t entryStart = 0;
+    while (entryStart < str.size())
+    {
+        size_t entryEnd = str.find(';', entryStart);
+        if (entryEnd == std::string::npos)
+            entryEnd = str.size();
+
+        if (entryEnd == entryStart)
+        {
+            entryStart = entryEnd + 1;
             continue;
         }
-        std::vector<MediaTrack*> value;
-        while (std::getline(lineStream, trackStr, ','))
+
+        size_t keyEnd = str.find(':', entryStart);
+        if (keyEnd == std::string::npos || keyEnd > entryEnd)
         {
-            MediaTrack* track = stringToTrack(trackStr);
+            entryStart = entryEnd + 1;
+            continue;
+        }
+
+        MediaTrack* key = FindTrackByGuid(str.c_str() + entryStart, keyEnd - entryStart);
+        if (key == nullptr)
+        {
+            entryStart = entryEnd + 1;
+            continue;
+        }
+
+        auto& value = state.mutedSends[key];
+        size_t valueStart = keyEnd + 1;
+        while (valueStart < entryEnd)
+        {
+            size_t valueEnd = str.find(',', valueStart);
+            if (valueEnd == std::string::npos || valueEnd > entryEnd)
+                valueEnd = entryEnd;
+
+            MediaTrack* track = FindTrackByGuid(str.c_str() + valueStart, valueEnd - valueStart);
             if (track != nullptr)
                 value.push_back(track);
+
+            valueStart = valueEnd + 1;
         }
-        map[key] = value;
+
+        entryStart = entryEnd + 1;
     }
-    return map;
 }
 
 void StoreStringToProjExtState(const std::string& key, const std::string& str)
 {
-    SetProjExtState(0, EXTNAME, key.c_str(), std::string(str + "#").c_str());
+    state.projectStateText = str;
+    state.projectStateText.push_back('#');
+    SetProjExtState(0, EXTNAME, key.c_str(), state.projectStateText.c_str());
+    state.projectStateText.pop_back();
 }
 
-std::string LoadStringFromProjExtState(const std::string& key)
+const std::string& LoadStringFromProjExtState(const std::string& key)
 {
-    static int bufSize = BUFSIZ;
-    char* buf = new char[bufSize];
-    GetProjExtState(0, EXTNAME, key.c_str(), buf, bufSize);
-    std::string str = buf;
-    while (!str.empty() && str.find('#') == std::string::npos)
+    int bufferSize = (int)state.projectStateBuffer.size();
+    GetProjExtState(0, EXTNAME, key.c_str(), state.projectStateBuffer.data(), bufferSize);
+    state.projectStateText = state.projectStateBuffer.data();
+
+    while (!state.projectStateText.empty() && state.projectStateText.find('#') == std::string::npos)
     {
-        delete[] buf;
-        buf = nullptr;
-        bufSize = bufSize * 2;
-        buf = new char[bufSize];
-        GetProjExtState(0, EXTNAME, key.c_str(), buf, bufSize);
-        str = buf;
+        state.projectStateBuffer.resize(state.projectStateBuffer.size() * 2);
+        bufferSize = (int)state.projectStateBuffer.size();
+        GetProjExtState(0, EXTNAME, key.c_str(), state.projectStateBuffer.data(), bufferSize);
+        state.projectStateText = state.projectStateBuffer.data();
     }
-    delete[] buf;
-    buf = nullptr;
-    return str.substr(0, str.find('#'));
+
+    size_t endPos = state.projectStateText.find('#');
+    if (endPos != std::string::npos)
+        state.projectStateText.resize(endPos);
+
+    return state.projectStateText;
 }
 
 void DoMute(MediaTrack* tr, bool mute)
@@ -463,8 +507,7 @@ void DoMute(MediaTrack* tr, bool mute)
     }
 
     PreventUIRefresh(1);
-    auto str = LoadStringFromProjExtState("mutedSends");
-    mutedSends = deserializeMap(str);
+    DeserializeMutedSends(LoadStringFromProjExtState("mutedSends"));
 
     for (int i = 0; i < GetTrackNumSends(tr, 0); i++)
     {
@@ -475,17 +518,17 @@ void DoMute(MediaTrack* tr, bool mute)
             if (!isMuted && mute)
             {
                 SetTrackSendInfo_Value(tr, 0, i, "B_MUTE", 1);
-                mutedSends[tr].push_back(dst);
+                state.mutedSends[tr].push_back(dst);
             }
-            else if (isMuted && !mute && hasElement(mutedSends[tr], dst))
+            else if (isMuted && !mute && hasElement(state.mutedSends[tr], dst))
             {
                 SetTrackSendInfo_Value(tr, 0, i, "B_MUTE", 0);
-                removeFirst(mutedSends[tr], dst);
+                removeFirst(state.mutedSends[tr], dst);
             }
         }
     }
-    str = serializeMap(mutedSends);
-    StoreStringToProjExtState("mutedSends", str);
+    SerializeMutedSends();
+    StoreStringToProjExtState("mutedSends", state.projectStateText);
     PreventUIRefresh(-1);
 }
 
@@ -512,24 +555,24 @@ CommandHook(KbdSectionInfo* sec, const int command, const int val, const int val
     (void)relmode;
     (void)hwnd;
 
-    if (command == solotus_init_command_id)
+    if (command == state.initCommandId)
     {
-        solotus_multichannel = false;
+        state.multichannel = false;
         Initialize();
         return true;
     }
-    else if (command == solotus_init_multichannel_command_id)
+    else if (command == state.initMultichannelCommandId)
     {
-        solotus_multichannel = true;
+        state.multichannel = true;
         Initialize();
         return true;
     }
 
-    std::scoped_lock lock(m);
-    if (command == solotus_command_id)
+    std::scoped_lock lock(state.mutex);
+    if (command == state.commandId)
     {
-        solotus_state = !solotus_state;
-        if (!solotus_state)
+        state.enabled = !state.enabled;
+        if (!state.enabled)
             ShutDown();
         return true;
     }
@@ -539,9 +582,9 @@ CommandHook(KbdSectionInfo* sec, const int command, const int val, const int val
 
 int ToggleActionCallback(int command_id)
 {
-    std::scoped_lock lock(m);
-    if (command_id == solotus_command_id)
-        return solotus_state;
+    std::scoped_lock lock(state.mutex);
+    if (command_id == state.commandId)
+        return state.enabled;
 
     return -1;
 }
@@ -557,9 +600,9 @@ custom_action_register_t action_init_multichannel_registration{
 
 void Register()
 {
-    solotus_command_id = plugin_register("custom_action", &action_registration);
-    solotus_init_command_id = plugin_register("custom_action", &action_init_registration);
-    solotus_init_multichannel_command_id = plugin_register("custom_action", &action_init_multichannel_registration);
+    state.commandId = plugin_register("custom_action", &action_registration);
+    state.initCommandId = plugin_register("custom_action", &action_init_registration);
+    state.initMultichannelCommandId = plugin_register("custom_action", &action_init_multichannel_registration);
 
     plugin_register("hookcommand2", (void*)&CommandHook);
     plugin_register("toggleaction", (void*)&ToggleActionCallback);
@@ -570,11 +613,11 @@ void Unregister()
     plugin_register("-toggleaction", (void*)&ToggleActionCallback);
     plugin_register("-hookcommand2", (void*)&CommandHook);
 
-    if (solotus_command_id > 0)
+    if (state.commandId > 0)
         plugin_register("-custom_action", &action_registration);
-    if (solotus_init_command_id > 0)
+    if (state.initCommandId > 0)
         plugin_register("-custom_action", &action_init_registration);
-    if (solotus_init_multichannel_command_id > 0)
+    if (state.initMultichannelCommandId > 0)
         plugin_register("-custom_action", &action_init_multichannel_registration);
 }
 
@@ -599,18 +642,18 @@ public:
     void SetSurfaceSolo(MediaTrack* trackid, bool solo) override
     {
         // to avoid internal recursion
-        if (atomic_bool_lock)
+        if (state.callbackGuard)
             return;
 
-        std::scoped_lock lock(m);
-        if (solotus_state == 0)
+        std::scoped_lock lock(state.mutex);
+        if (state.enabled == 0)
             return;
         auto* master = GetMasterTrack(0);
         if (trackid != master)
             return;
 
-        atomic_bool_lock = true;
-        std::set<MediaTrack*> queue{};
+        state.callbackGuard = true;
+        state.soloQueue.clear();
         if (solo)
         {
             for (int i = 0; i < GetNumTracks(); i++)
@@ -619,30 +662,30 @@ public:
                 int state{};
                 (void)GetTrackState(tr, &state);
                 if (state & 16)
-                    queue.insert(tr);
+                    reasolotus::state.soloQueue.insert(tr);
             }
         }
 
-        DoSolo(queue);
-        atomic_bool_lock = false;
+        DoSolo();
+        state.callbackGuard = false;
     }
 
     void SetSurfaceMute(MediaTrack* trackid, bool mute) override
     {
         // to avoid internal recursion
-        if (atomic_bool_lock)
+        if (state.callbackGuard)
             return;
 
-        std::scoped_lock lock(m);
-        if (solotus_state == 0)
+        std::scoped_lock lock(state.mutex);
+        if (state.enabled == 0)
             return;
         auto* master = GetMasterTrack(0);
         if (trackid == master)
             return;
 
-        atomic_bool_lock = true;
+        state.callbackGuard = true;
         DoMute(trackid, mute);
-        atomic_bool_lock = false;
+        state.callbackGuard = false;
     }
 };
 
