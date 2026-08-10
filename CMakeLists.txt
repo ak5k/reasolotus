@@ -3,7 +3,7 @@ project(reasolotus VERSION 0.2.0 LANGUAGES C CXX)
 
 set(
   FETCHCONTENT_BASE_DIR
-  "${CMAKE_SOURCE_DIR}/.deps"
+  "${CMAKE_SOURCE_DIR}/_deps"
   CACHE PATH
   "Directory used by FetchContent for third-party sources"
   FORCE

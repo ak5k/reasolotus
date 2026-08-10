@@ -13,16 +13,6 @@ on:
         required: false
         default: Debug
         type: string
-      windows_preset:
-        description: CMake preset used for Windows configure/build
-        required: false
-        default: windows-msvc-ninja-debug
-        type: string
-      windows_artifact_dir:
-        description: Directory that contains Windows output artifacts
-        required: false
-        default: build/windows-msvc-ninja/Debug
-        type: string
       artifact_prefix:
         description: Optional artifact name prefix
         required: false
@@ -74,6 +64,7 @@ jobs:
 
     env:
       ARCH: ${{ matrix.arch }}
+      WINDOWS_BUILD_DIR: build
 
     steps:
       - name: Checkout (default ref)
@@ -164,9 +155,9 @@ jobs:
         uses: actions/cache@v4
         with:
           path: |
-            .deps
+            _deps
           key: >-
-            ${{ inputs.cache_key_prefix }}${{ runner.os }}-${{ matrix.arch }}-${{ hashFiles('CMakeLists.txt', 'CMakePresets.json', 'cmake/**/*.cmake') }}
+            ${{ inputs.cache_key_prefix }}${{ runner.os }}-${{ matrix.arch }}-${{ hashFiles('CMakeLists.txt', 'cmake/**/*.cmake') }}
 
       - name: Setup MSVC environment
         if: matrix.platform == 'windows'
@@ -209,7 +200,9 @@ jobs:
       - name: Configure Windows
         if: runner.os == 'Windows'
         shell: pwsh
-        run: cmake --preset ${{ inputs.windows_preset }}
+        run: >-
+          cmake -S . -B ${{ env.WINDOWS_BUILD_DIR }}
+          -G "Ninja Multi-Config"
 
       - name: Build Unix
         if: runner.os != 'Windows'
@@ -219,7 +212,7 @@ jobs:
       - name: Build Windows
         if: runner.os == 'Windows'
         shell: pwsh
-        run: cmake --build --preset ${{ inputs.windows_preset }}
+        run: cmake --build ${{ env.WINDOWS_BUILD_DIR }} --config ${{ inputs.build_type }}
 
       - name: Upload Linux artifacts
         if: matrix.platform == 'linux'
@@ -243,6 +236,6 @@ jobs:
         with:
           name: ${{ inputs.artifact_prefix != '' && format('{0}-{1}', inputs.artifact_prefix, matrix.name) || matrix.name }}
           path: |
-            ${{ inputs.windows_artifact_dir }}/*.dll
-            ${{ inputs.windows_artifact_dir }}/*.pdb
+            ${{ env.WINDOWS_BUILD_DIR }}/${{ inputs.build_type }}/*.dll
+            ${{ env.WINDOWS_BUILD_DIR }}/${{ inputs.build_type }}/*.pdb
           if-no-files-found: warn
