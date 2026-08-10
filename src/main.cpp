@@ -201,8 +201,11 @@ void CreateSoloBus(MediaTrack* res)
     SetProjExtState(0, EXTNAME, "Solo", buf);
 }
 
-void SendAllChannels(int trackSendId, MediaTrack* sendTrack, MediaTrack* receiveTrack)
+void ConfigureSendChannels(int trackSendId, MediaTrack* sendTrack, MediaTrack* receiveTrack)
 {
+    if (!solotus_multichannel)
+        return;
+
     int sendNumChannels = (int)GetMediaTrackInfo_Value(sendTrack, "I_NCHAN");
     int receiveNumChannels = (int)GetMediaTrackInfo_Value(receiveTrack, "I_NCHAN");
 
@@ -215,6 +218,13 @@ void SendAllChannels(int trackSendId, MediaTrack* sendTrack, MediaTrack* receive
         SetTrackSendInfo_Value(sendTrack, 0, trackSendId, "I_SRCCHAN", chanFlag);
         SetTrackSendInfo_Value(sendTrack, 0, trackSendId, "I_DSTCHAN", 0);
     }
+}
+
+int CreateManagedSend(MediaTrack* sendTrack, MediaTrack* receiveTrack)
+{
+    int trackSendId = CreateTrackSend(sendTrack, receiveTrack);
+    ConfigureSendChannels(trackSendId, sendTrack, receiveTrack);
+    return trackSendId;
 }
 
 void Organize()
@@ -236,19 +246,13 @@ void Organize()
             SetMediaTrackInfo_Value(tr, "B_SOLO_DEFEAT", 1);
 
         if (HasSend(tr, master) && tr != mixbus && tr != solobus && tr != master)
-        {
-            auto j = CreateTrackSend(tr, mixbus);
-            if (solotus_multichannel)
-                SendAllChannels(j, tr, mixbus);
-        }
+            auto j = CreateManagedSend(tr, mixbus);
 
         if (!HasSend(tr, solobus) && tr != solobus && tr != master)
         {
-            auto j = CreateTrackSend(tr, solobus);
+            auto j = CreateManagedSend(tr, solobus);
             SetTrackSendInfo_Value(tr, 0, j, "B_MUTE", (tr == mixbus) ? 0 : 1);
             SetTrackSendInfo_Value(tr, 0, j, "I_SENDMODE", 3);
-            if (solotus_multichannel)
-                SendAllChannels(j, tr, solobus);
         }
 
         auto* parent = GetParentTrack(tr);
@@ -258,11 +262,7 @@ void Organize()
             folderFound = true;
             auto hasParentSend = GetMediaTrackInfo_Value(tr, "B_MAINSEND");
             if (!HasSend(tr, parent) && hasParentSend > 0)
-            {
-                auto j = CreateTrackSend(tr, parent);
-                if (solotus_multichannel)
-                    SendAllChannels(j, tr, parent);
-            }
+                auto j = CreateManagedSend(tr, parent);
             for (int j = 0; j < GetTrackNumSends(tr, 0); j++)
             {
                 auto* dst = (MediaTrack*)(uintptr_t)GetTrackSendInfo_Value(tr, 0, j, "P_DESTTRACK");
@@ -500,6 +500,7 @@ void Initialize()
     if (!solobus)
         CreateSoloBus(solobus);
     Organize();
+    ShowConsoleMsg("ReaSolotus: Remember to set output for Mix bus. Master is the solo/control room/phones output.\n");
 }
 
 static bool
