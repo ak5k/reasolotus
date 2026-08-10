@@ -98,7 +98,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ needs.prepare-release.outputs.tag }}
-          name: ReaSolotus v${{ needs.prepare-release.outputs.version }}
+          name: ${{ needs.prepare-release.outputs.version }}
           draft: true
           generate_release_notes: true
           files: |
