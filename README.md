@@ -19,38 +19,6 @@
 
 ![image](https://i.imgur.com/jSFMUHN.gif)
 
-## Build
-
-Dependencies are fetched with CMake `FetchContent` on first configure and cached under `.deps` at the repository root. Deleting `build/` no longer forces WDL or `reaper-sdk` to be redownloaded.
-
-This project now defaults to CMake 4.
-
-### Local configure
-
-```powershell
-cmake -S . -B build
-cmake --build build
-```
-
-### Windows presets
-
-The repository includes Windows Ninja presets in [CMakePresets.json](CMakePresets.json). They expect CMake and Ninja to be installed.
-
-```powershell
-cmake --preset windows-msvc-ninja-debug
-cmake --build --preset windows-msvc-ninja-debug
-```
-
-### CI targets
-
-The GitHub Actions matrix currently targets:
-
-* Windows x64
-* Windows arm64ec
-* macOS arm64
-* Linux x86_64
-* Linux aarch64
-
 ## About
 
 Each track gets assigned with a (muted) send to Solo bus. When track is soloed it's listened through this send. Perhaps 'monitoring bus' would be technically more accurate term. Similarly all top level tracks get assigned to Mix bus, which could also be thought of as a 'program out'. This is the routing which ReaSolotus manages automatically resulting in uninterrupted output while being able to monitor individual tracks, and this is also how most live mixing consoles are usually operated.
