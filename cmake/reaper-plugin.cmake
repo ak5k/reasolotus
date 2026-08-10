@@ -6,14 +6,6 @@ endif()
 
 include(FetchContent)
 
-set(
-  FETCHCONTENT_UPDATES_DISCONNECTED
-  ON
-  CACHE BOOL
-  "Avoid updating FetchContent dependencies during normal configure runs"
-  FORCE
-)
-
 set(REASOLOTUS_WDL_CACHE_DIR "${FETCHCONTENT_BASE_DIR}/WDL")
 set(REASOLOTUS_REAPER_SDK_CACHE_DIR "${FETCHCONTENT_BASE_DIR}/reaper-sdk")
 
@@ -62,11 +54,6 @@ execute_process(
             "${REASOLOTUS_WDL_SOURCE_DIR}/WDL"
             "${REASOLOTUS_REAPER_SDK_SOURCE_DIR}/WDL"
 )
-
-if(DEFINED ENV{VCPKG_ROOT} AND NOT DEFINED CMAKE_TOOLCHAIN_FILE)
-  set(CMAKE_TOOLCHAIN_FILE "$ENV{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake"
-    CACHE STRING "")
-endif()
 
 if(NOT TARGET reaper-sdk)
   add_library(reaper-sdk IMPORTED INTERFACE)
