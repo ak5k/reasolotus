@@ -38,8 +38,7 @@ template <typename T>
 struct ConfigVar
 {
     explicit ConfigVar(const char* name, ReaProject* project = nullptr)
-        : m_name{name}
-        , m_addr{}
+        : m_addr{}
     {
         int size = 0;
         void* addr;
@@ -78,11 +77,6 @@ struct ConfigVar
         return m_addr;
     }
 
-    T value_or(const T fallback) const
-    {
-        return m_addr ? *m_addr : fallback;
-    }
-
     bool try_set(const T newValue)
     {
         if (!m_addr)
@@ -92,7 +86,6 @@ struct ConfigVar
         return true;
     }
 
-    const char* m_name;
     T* m_addr;
 };
 
