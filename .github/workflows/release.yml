@@ -37,7 +37,7 @@ jobs:
           fi
 
           echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "tag=v$version" >> "$GITHUB_OUTPUT"
+          echo "tag=$version" >> "$GITHUB_OUTPUT"
 
       - name: Ensure tag does not already exist
         shell: bash
