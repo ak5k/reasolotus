@@ -1,3 +1,13 @@
-/build*
-/.deps
-.DS_Store
+*
+!*/
+
+.gitignore
+
+!/.vscode/**
+!/cmake/**
+!/src/**
+
+CmakeLists.txt
+CMakePresets.json
+LICENSE
+README.md

@@ -31,9 +31,7 @@ struct ReaSolotusState
 
     int commandId{-1};
     int initCommandId{-1};
-    int initMultichannelCommandId{-1};
     int enabled{0};
-    bool multichannel{false};
     std::atomic_bool callbackGuard{false};
     std::mutex mutex{};
     std::set<MediaTrack*> soloQueue{};
@@ -113,31 +111,27 @@ bool HasSend(MediaTrack* src, MediaTrack* dst)
     return res;
 }
 
-MediaTrack* GetMixbus()
+MediaTrack* FindTrackByStoredGuid(const char* extStateKey)
 {
-    static MediaTrack* res = nullptr;
-
-    if (res != nullptr && ValidatePtr2(0, res, "MediaTrack*"))
-        return res;
-
-    res = nullptr;
-
-    char buf[BUFSIZ]{};
-    GUID* g{};
-    GetProjExtState(0, EXTNAME, "Mix", buf, BUFSIZ);
-
-    std::string s = buf;
+    char storedGuid[BUFSIZ]{};
+    GetProjExtState(0, EXTNAME, extStateKey, storedGuid, BUFSIZ);
 
     for (int i = 0; i < GetNumTracks(); i++)
     {
-        auto* tr = GetTrack(0, i);
-        g = GetTrackGUID(tr);
-        guidToString(g, buf);
-        if (s == buf)
-            res = tr;
+        MediaTrack* track = GetTrack(0, i);
+        GUID* guid = GetTrackGUID(track);
+        char trackGuid[BUFSIZ]{};
+        guidToString(guid, trackGuid);
+        if (std::string(storedGuid) == trackGuid)
+            return track;
     }
 
-    return res;
+    return nullptr;
+}
+
+MediaTrack* GetMixbus()
+{
+    return FindTrackByStoredGuid("Mix");
 }
 
 void CreateMixBus(MediaTrack* res)
@@ -154,38 +148,16 @@ void CreateMixBus(MediaTrack* res)
         ReorderSelectedTracks(0, 0);
         SetTrackSelected(res, false);
     }
-    GUID* g;
-    g = GetTrackGUID(res);
-    char buf[512];
-    guidToString(g, buf);
-    SetProjExtState(0, EXTNAME, "Mix", buf);
+
+    GUID* guid = GetTrackGUID(res);
+    char guidText[512];
+    guidToString(guid, guidText);
+    SetProjExtState(0, EXTNAME, "Mix", guidText);
 }
 
 MediaTrack* GetSolobus()
 {
-    static MediaTrack* res = nullptr;
-
-    if (res != nullptr && ValidatePtr2(0, res, "MediaTrack*"))
-        return res;
-
-    res = nullptr;
-
-    char buf[BUFSIZ]{};
-    GUID* g{};
-    GetProjExtState(0, EXTNAME, "Solo", buf, BUFSIZ);
-
-    std::string s = buf;
-
-    for (int i = 0; i < GetNumTracks(); i++)
-    {
-        auto* tr = GetTrack(0, i);
-        g = GetTrackGUID(tr);
-        guidToString(g, buf);
-        if (s == buf)
-            res = tr;
-    }
-
-    return res;
+    return FindTrackByStoredGuid("Solo");
 }
 
 void CreateSoloBus(MediaTrack* res)
@@ -202,52 +174,114 @@ void CreateSoloBus(MediaTrack* res)
         SetTrackSelected(res, false);
     }
 
-    GUID* g;
-    g = GetTrackGUID(res);
-    char buf[512];
-    guidToString(g, buf);
-    SetProjExtState(0, EXTNAME, "Solo", buf);
+    GUID* guid = GetTrackGUID(res);
+    char guidText[512];
+    guidToString(guid, guidText);
+    SetProjExtState(0, EXTNAME, "Solo", guidText);
 }
 
-void ConfigureSendChannels(int trackSendId, MediaTrack* sendTrack, MediaTrack* receiveTrack)
+int FindSendToTrack(MediaTrack* src, MediaTrack* dst)
 {
-    if (!state->multichannel)
+    for (int i = 0; i < GetTrackNumSends(src, 0); i++)
+    {
+        MediaTrack* sendDst = (MediaTrack*)(uintptr_t)GetTrackSendInfo_Value(src, 0, i, "P_DESTTRACK");
+        if (sendDst == dst)
+            return i;
+    }
+
+    return -1;
+}
+
+int BuildSourceChannelSpec(int channelCount)
+{
+    int sourceChannelSpec = 0;
+
+    if (channelCount <= 0)
+        return sourceChannelSpec;
+
+    if (channelCount == 1)
+        sourceChannelSpec = 1;
+    else if (channelCount > 2)
+        sourceChannelSpec = channelCount / 2;
+
+    return sourceChannelSpec;
+}
+
+void SanitizeSendToBus(MediaTrack* sendTrack, MediaTrack* receiveBus)
+{
+    if (sendTrack == nullptr || receiveBus == nullptr)
+        return;
+
+    int sendIdx = FindSendToTrack(sendTrack, receiveBus);
+    if (sendIdx < 0)
+        return;
+
+    int trackChannels = (int)GetMediaTrackInfo_Value(sendTrack, "I_NCHAN");
+    int busChannels = (int)GetMediaTrackInfo_Value(receiveBus, "I_NCHAN");
+    int sendChannelCount = std::min(trackChannels, busChannels);
+
+    if (sendChannelCount <= 0)
+        return;
+
+    if (sendChannelCount > 1 && (sendChannelCount % 2) != 0)
+        sendChannelCount--;
+
+    int sourceChannelSpec = BuildSourceChannelSpec(sendChannelCount);
+
+    SetTrackSendInfo_Value(sendTrack, 0, sendIdx, "I_SRCCHAN", sourceChannelSpec << 10);
+    SetTrackSendInfo_Value(sendTrack, 0, sendIdx, "I_DSTCHAN", 0);
+}
+
+void SanitizeSoloBusChannels(MediaTrack* mixbus, MediaTrack* solobus)
+{
+    if (mixbus == nullptr || solobus == nullptr)
+        return;
+
+    int mixbusChannels = (int)GetMediaTrackInfo_Value(mixbus, "I_NCHAN");
+    int solobusChannels = (int)GetMediaTrackInfo_Value(solobus, "I_NCHAN");
+
+    if (mixbusChannels > 0 && solobusChannels != mixbusChannels)
+        SetMediaTrackInfo_Value(solobus, "I_NCHAN", mixbusChannels);
+}
+
+void ConfigureSendChannels(int trackSendId, MediaTrack* sendTrack)
+{
+    if (trackSendId < 0)
         return;
 
     int sendNumChannels = (int)GetMediaTrackInfo_Value(sendTrack, "I_NCHAN");
-    int receiveNumChannels = (int)GetMediaTrackInfo_Value(receiveTrack, "I_NCHAN");
 
-    if (sendNumChannels > receiveNumChannels)
-        GetSetMediaTrackInfo(receiveTrack, "I_NCHAN", &sendNumChannels);
+    int sourceChannelSpec = 0;
+    if (sendNumChannels == 1)
+        sourceChannelSpec = 1;
+    else if (sendNumChannels > 2)
+        sourceChannelSpec = sendNumChannels / 2;
 
-    if (sendNumChannels > 2)
-    {
-        int chanFlag = (sendNumChannels << 9);
-        SetTrackSendInfo_Value(sendTrack, 0, trackSendId, "I_SRCCHAN", chanFlag);
-        SetTrackSendInfo_Value(sendTrack, 0, trackSendId, "I_DSTCHAN", 0);
-    }
+    SetTrackSendInfo_Value(sendTrack, 0, trackSendId, "I_SRCCHAN", sourceChannelSpec << 10);
+    SetTrackSendInfo_Value(sendTrack, 0, trackSendId, "I_DSTCHAN", 0);
 }
 
 int CreateManagedSend(MediaTrack* sendTrack, MediaTrack* receiveTrack)
 {
     int trackSendId = CreateTrackSend(sendTrack, receiveTrack);
-    ConfigureSendChannels(trackSendId, sendTrack, receiveTrack);
+    ConfigureSendChannels(trackSendId, sendTrack);
     return trackSendId;
 }
 
 void Organize()
 {
-    auto* master = GetMasterTrack(0);
-    auto* mixbus = GetMixbus();
-    auto* solobus = GetSolobus();
-    auto folderFound{false};
+    MediaTrack* master = GetMasterTrack(0);
+    MediaTrack* mixbus = GetMixbus();
+    MediaTrack* solobus = GetSolobus();
+    bool folderFound = false;
+    int trackCount = GetNumTracks();
 
     if (!mixbus || !solobus)
         return;
 
-    for (auto i = 0; i < GetNumTracks(); i++)
+    for (int i = 0; i < trackCount; i++)
     {
-        auto* tr = GetTrack(0, i);
+        MediaTrack* tr = GetTrack(0, i);
 
         if (GetTrackNumSends(tr, 1) > 0)
             SetMediaTrackInfo_Value(tr, "B_SOLO_DEFEAT", 1);
@@ -257,26 +291,26 @@ void Organize()
 
         if (!HasSend(tr, solobus) && tr != solobus && tr != master)
         {
-            auto j = CreateManagedSend(tr, solobus);
+            int j = CreateManagedSend(tr, solobus);
             SetTrackSendInfo_Value(tr, 0, j, "B_MUTE", (tr == mixbus) ? 0 : 1);
             SetTrackSendInfo_Value(tr, 0, j, "I_SENDMODE", 3);
         }
 
-        auto* parent = GetParentTrack(tr);
+        MediaTrack* parent = GetParentTrack(tr);
 
         if (parent != nullptr)
         {
             folderFound = true;
-            auto hasParentSend = GetMediaTrackInfo_Value(tr, "B_MAINSEND");
+            double hasParentSend = GetMediaTrackInfo_Value(tr, "B_MAINSEND");
             if (!HasSend(tr, parent) && hasParentSend > 0)
                 CreateManagedSend(tr, parent);
             for (int j = 0; j < GetTrackNumSends(tr, 0); j++)
             {
-                auto* dst = (MediaTrack*)(uintptr_t)GetTrackSendInfo_Value(tr, 0, j, "P_DESTTRACK");
+                MediaTrack* dst = (MediaTrack*)(uintptr_t)GetTrackSendInfo_Value(tr, 0, j, "P_DESTTRACK");
                 if (dst == mixbus)
                     RemoveTrackSend(tr, 0, j);
             }
-            auto parentIdx = (int)GetMediaTrackInfo_Value(parent, "IP_TRACKNUMBER");
+            int parentIdx = (int)GetMediaTrackInfo_Value(parent, "IP_TRACKNUMBER");
 
             SetOnlyTrackSelected(tr);
             ReorderSelectedTracks(parentIdx - 1, 0);
@@ -311,14 +345,19 @@ void DoSolo()
     }
 
     PreventUIRefresh(1);
-    if (!state->soloQueue.empty())
-        Organize();
+
+    SanitizeSoloBusChannels(mixbus, solobus);
+
+    SanitizeSendToBus(mixbus, solobus);
 
     bool hasRelevantSolo = !state->soloQueue.empty();
     bool isMixbusSoloed = state->soloQueue.contains(mixbus);
 
     for (auto* tr : state->soloQueue)
     {
+        SanitizeSendToBus(tr, solobus);
+        SanitizeSendToBus(tr, mixbus);
+
         for (int i = 0; i < GetTrackNumSends(tr, 0); i++)
         {
             auto dst = (MediaTrack*)(uintptr_t)GetTrackSendInfo_Value(tr, 0, i, "P_DESTTRACK");
@@ -528,13 +567,22 @@ void ShutDown();
 
 void Initialize()
 {
-    auto* mixbus = GetMixbus();
-    auto* solobus = GetSolobus();
+    Undo_BeginBlock();
+
+    MediaTrack* mixbus = GetMixbus();
+    MediaTrack* solobus = GetSolobus();
     if (!mixbus)
         CreateMixBus(mixbus);
     if (!solobus)
         CreateSoloBus(solobus);
+
+    mixbus = GetMixbus();
+    solobus = GetSolobus();
+
     Organize();
+
+    Undo_EndBlock("ReaSolotus Init", -1);
+
     ShowConsoleMsg("ReaSolotus: Remember to set output for Mix bus. Master is the solo/control room/phones output.\n");
 }
 
@@ -552,13 +600,6 @@ CommandHook(KbdSectionInfo* sec, const int command, const int val, const int val
 
     if (command == state->initCommandId)
     {
-        state->multichannel = false;
-        Initialize();
-        return true;
-    }
-    else if (command == state->initMultichannelCommandId)
-    {
-        state->multichannel = true;
         Initialize();
         return true;
     }
@@ -589,12 +630,6 @@ int ToggleActionCallback(int command_id)
 
 custom_action_register_t action_registration{0, "AK5K_REASOLOTUS", "ReaSolotus", nullptr};
 custom_action_register_t action_init_registration{0, "AK5K_REASOLOTUS_INIT", "ReaSolotus Init", nullptr};
-custom_action_register_t action_init_multichannel_registration{
-    0,
-    "AK5K_REASOLOTUS_INIT_MULTICHANNEL",
-    "ReaSolotus Init (MultiChannel Support)",
-    nullptr
-};
 
 void Register()
 {
@@ -603,7 +638,6 @@ void Register()
 
     state->commandId = plugin_register("custom_action", &action_registration);
     state->initCommandId = plugin_register("custom_action", &action_init_registration);
-    state->initMultichannelCommandId = plugin_register("custom_action", &action_init_multichannel_registration);
 
     plugin_register("hookcommand2", (void*)&CommandHook);
     plugin_register("toggleaction", (void*)&ToggleActionCallback);
@@ -690,8 +724,6 @@ void Unregister()
         plugin_register("-custom_action", &action_registration);
     if (state->initCommandId > 0)
         plugin_register("-custom_action", &action_init_registration);
-    if (state->initMultichannelCommandId > 0)
-        plugin_register("-custom_action", &action_init_multichannel_registration);
 
     delete state->csurf;
     state->csurf = nullptr;
