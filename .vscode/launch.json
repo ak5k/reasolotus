@@ -1,0 +1,14 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Launch REAPER (Debug plugin)",
+            "type": "cppvsdbg",
+            "request": "launch",
+            "program": "C:\\Program Files\\REAPER (x64)\\reaper.exe",
+            "cwd": "C:\\Program Files\\REAPER (x64)",
+            "preLaunchTask": "Install plugin (Debug)",
+            "stopAtEntry": false
+        }
+    ]
+}

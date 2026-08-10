@@ -23,6 +23,8 @@ void CreateSoloBus(MediaTrack*& res, GUID*& g, char buf[512]);
 
 void CreateMixBus(MediaTrack*& res, GUID*& g, char buf[512]);
 
+void Unregister();
+
 int solotus_command_id{-1};
 int solotus_init_command_id{-1};
 int solotus_init_multichannel_command_id{-1};
@@ -211,7 +213,7 @@ void SendAllChannels(int trackSendId, MediaTrack* sendTrack, MediaTrack* receive
     {
         int chanFlag = (sendNumChannels << 9);
         SetTrackSendInfo_Value(sendTrack, 0, trackSendId, "I_SRCCHAN", chanFlag);
-        SetTrackSendInfo_Value(sendTrack, 0, trackSendId, "I_SRCCHAN", chanFlag);
+        SetTrackSendInfo_Value(sendTrack, 0, trackSendId, "I_DSTCHAN", 0);
     }
 }
 
@@ -500,9 +502,8 @@ void Initialize()
     Organize();
 }
 
-static bool CommandHook(
-    KbdSectionInfo* sec, const int command, const int val, const int valhw, const int relmode, HWND hwnd
-)
+static bool
+CommandHook(KbdSectionInfo* sec, const int command, const int val, const int valhw, const int relmode, HWND hwnd)
 {
     (void)sec;
     (void)val;
@@ -544,21 +545,36 @@ int ToggleActionCallback(int command_id)
     return -1;
 }
 
+custom_action_register_t action_registration{0, "AK5K_REASOLOTUS", "ReaSolotus", nullptr};
+custom_action_register_t action_init_registration{0, "AK5K_REASOLOTUS_INIT", "ReaSolotus Init", nullptr};
+custom_action_register_t action_init_multichannel_registration{
+    0,
+    "AK5K_REASOLOTUS_INIT_MULTICHANNEL",
+    "ReaSolotus Init (MultiChannel Support)",
+    nullptr
+};
+
 void Register()
 {
-    custom_action_register_t action{0, "AK5K_REASOLOTUS", "ReaSolotus", nullptr};
-    solotus_command_id = plugin_register("custom_action", &action);
-
-    custom_action_register_t actionInit{0, "AK5K_REASOLOTUS_INIT", "ReaSolotus Init", nullptr};
-    solotus_init_command_id = plugin_register("custom_action", &actionInit);
-
-    custom_action_register_t actionInitMultichannel{
-        0, "AK5K_REASOLOTUS_INIT_MULTICHANNEL", "ReaSolotus Init (MultiChannel Support)", nullptr
-    };
-    solotus_init_multichannel_command_id = plugin_register("custom_action", &actionInitMultichannel);
+    solotus_command_id = plugin_register("custom_action", &action_registration);
+    solotus_init_command_id = plugin_register("custom_action", &action_init_registration);
+    solotus_init_multichannel_command_id = plugin_register("custom_action", &action_init_multichannel_registration);
 
     plugin_register("hookcommand2", (void*)&CommandHook);
     plugin_register("toggleaction", (void*)&ToggleActionCallback);
+}
+
+void Unregister()
+{
+    plugin_register("-toggleaction", (void*)&ToggleActionCallback);
+    plugin_register("-hookcommand2", (void*)&CommandHook);
+
+    if (solotus_command_id > 0)
+        plugin_register("-custom_action", &action_registration);
+    if (solotus_init_command_id > 0)
+        plugin_register("-custom_action", &action_init_registration);
+    if (solotus_init_multichannel_command_id > 0)
+        plugin_register("-custom_action", &action_init_multichannel_registration);
 }
 
 class ReaSolotus : public IReaperControlSurface
@@ -616,7 +632,7 @@ public:
         if (atomic_bool_lock)
             return;
 
-        // std::scoped_lock lock(m);
+        std::scoped_lock lock(m);
         if (solotus_state == 0)
             return;
         auto* master = GetMasterTrack(0);
@@ -647,21 +663,33 @@ void ShutDown()
 
 } // namespace reasolotus
 
-reasolotus::ReaSolotus* csurf;
+reasolotus::ReaSolotus* csurf{};
 
 extern "C"
 {
     REAPER_PLUGIN_DLL_EXPORT int ReaperPluginEntry(REAPER_PLUGIN_HINSTANCE hInstance, reaper_plugin_info_t* rec)
     {
         (void)hInstance;
-        csurf = new reasolotus::ReaSolotus();
         if (!rec)
         {
-            delete csurf;
+            if (csurf)
+            {
+                plugin_register("-csurf_inst", csurf);
+                reasolotus::Unregister();
+                delete csurf;
+                csurf = nullptr;
+            }
             return 0;
         }
+
+        csurf = new reasolotus::ReaSolotus();
         if (rec->caller_version != REAPER_PLUGIN_VERSION || REAPERAPI_LoadAPI(rec->GetFunc))
+        {
+            delete csurf;
+            csurf = nullptr;
             return 0;
+        }
+
         reasolotus::Register();
         plugin_register("csurf_inst", csurf);
         return 1;

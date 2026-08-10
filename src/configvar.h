@@ -35,9 +35,8 @@ namespace reasolotus
 {
 
 template <typename T>
-class ConfigVar
+struct ConfigVar
 {
-public:
     explicit ConfigVar(const char* name, ReaProject* project = nullptr)
         : m_name{name}
         , m_addr{}
@@ -93,40 +92,8 @@ public:
         return true;
     }
 
-    void save();
-
-private:
     const char* m_name;
     T* m_addr;
-};
-
-template <typename T>
-class ConfigVarOverride
-{
-public:
-    ConfigVarOverride(ConfigVar<T> var, const T tempValue)
-        : m_var{var}
-    {
-        if (m_var)
-        {
-            m_initialValue = *m_var;
-            *m_var = tempValue;
-        }
-    }
-
-    void rollback()
-    {
-        m_var.try_set(m_initialValue);
-    }
-
-    ~ConfigVarOverride()
-    {
-        rollback();
-    }
-
-private:
-    ConfigVar<T> m_var;
-    T m_initialValue;
 };
 
 } // namespace reasolotus
