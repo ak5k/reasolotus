@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.31)
-project(reasolotus VERSION 0.2.0 LANGUAGES C CXX)
+project(reasolotus VERSION 0.3.0 LANGUAGES C CXX)
 
 set(
   FETCHCONTENT_BASE_DIR
