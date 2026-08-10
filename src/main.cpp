@@ -212,24 +212,44 @@ void SanitizeSendToBus(MediaTrack* sendTrack, MediaTrack* receiveBus)
     if (sendTrack == nullptr || receiveBus == nullptr)
         return;
 
-    int sendIdx = FindSendToTrack(sendTrack, receiveBus);
-    if (sendIdx < 0)
+    int sendCount = GetTrackNumSends(sendTrack, 0);
+    for (int sendIdx = 0; sendIdx < sendCount; sendIdx++)
+    {
+        MediaTrack* sendDst = (MediaTrack*)(uintptr_t)GetTrackSendInfo_Value(sendTrack, 0, sendIdx, "P_DESTTRACK");
+        if (sendDst != receiveBus)
+            continue;
+
+        int trackChannels = (int)GetMediaTrackInfo_Value(sendTrack, "I_NCHAN");
+        int busChannels = (int)GetMediaTrackInfo_Value(receiveBus, "I_NCHAN");
+        int sendChannelCount = std::min(trackChannels, busChannels);
+
+        if (sendChannelCount <= 0)
+            continue;
+
+        if (sendChannelCount > 1 && (sendChannelCount % 2) != 0)
+            sendChannelCount--;
+
+        int sourceChannelSpec = BuildSourceChannelSpec(sendChannelCount);
+
+        SetTrackSendInfo_Value(sendTrack, 0, sendIdx, "I_SRCCHAN", sourceChannelSpec << 10);
+        SetTrackSendInfo_Value(sendTrack, 0, sendIdx, "I_DSTCHAN", 0);
+    }
+}
+
+void SanitizeAllSendsToBuses(MediaTrack* mixbus, MediaTrack* solobus)
+{
+    if (mixbus == nullptr || solobus == nullptr)
         return;
 
-    int trackChannels = (int)GetMediaTrackInfo_Value(sendTrack, "I_NCHAN");
-    int busChannels = (int)GetMediaTrackInfo_Value(receiveBus, "I_NCHAN");
-    int sendChannelCount = std::min(trackChannels, busChannels);
+    for (int i = 0; i < GetNumTracks(); i++)
+    {
+        MediaTrack* tr = GetTrack(0, i);
+        if (tr == nullptr)
+            continue;
 
-    if (sendChannelCount <= 0)
-        return;
-
-    if (sendChannelCount > 1 && (sendChannelCount % 2) != 0)
-        sendChannelCount--;
-
-    int sourceChannelSpec = BuildSourceChannelSpec(sendChannelCount);
-
-    SetTrackSendInfo_Value(sendTrack, 0, sendIdx, "I_SRCCHAN", sourceChannelSpec << 10);
-    SetTrackSendInfo_Value(sendTrack, 0, sendIdx, "I_DSTCHAN", 0);
+        SanitizeSendToBus(tr, mixbus);
+        SanitizeSendToBus(tr, solobus);
+    }
 }
 
 void SanitizeSoloBusChannels(MediaTrack* mixbus, MediaTrack* solobus)
@@ -250,12 +270,12 @@ void ConfigureSendChannels(int trackSendId, MediaTrack* sendTrack)
         return;
 
     int sendNumChannels = (int)GetMediaTrackInfo_Value(sendTrack, "I_NCHAN");
+    int sendChannelCount = sendNumChannels;
 
-    int sourceChannelSpec = 0;
-    if (sendNumChannels == 1)
-        sourceChannelSpec = 1;
-    else if (sendNumChannels > 2)
-        sourceChannelSpec = sendNumChannels / 2;
+    if (sendChannelCount > 1 && (sendChannelCount % 2) != 0)
+        sendChannelCount--;
+
+    int sourceChannelSpec = BuildSourceChannelSpec(sendChannelCount);
 
     SetTrackSendInfo_Value(sendTrack, 0, trackSendId, "I_SRCCHAN", sourceChannelSpec << 10);
     SetTrackSendInfo_Value(sendTrack, 0, trackSendId, "I_DSTCHAN", 0);
@@ -580,6 +600,8 @@ void Initialize()
     solobus = GetSolobus();
 
     Organize();
+    SanitizeSoloBusChannels(mixbus, solobus);
+    SanitizeAllSendsToBuses(mixbus, solobus);
 
     Undo_EndBlock("ReaSolotus Init", -1);
 
