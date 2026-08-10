@@ -1,9 +1,7 @@
-// #include "reaper_vararg.hpp"
 #include <algorithm>
 #include <atomic>
 #include <mutex>
 #include <set>
-#include <sstream>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -19,17 +17,31 @@
 
 namespace reasolotus
 {
-void CreateSoloBus(MediaTrack*& res, GUID*& g, char buf[512]);
+class ReaSolotus;
 
-void CreateMixBus(MediaTrack*& res, GUID*& g, char buf[512]);
+void Unregister();
 
-int solotus_command_id{-1};
-int solotus_init_command_id{-1};
-int solotus_init_multichannel_command_id{-1};
-int solotus_state{0};
-bool solotus_multichannel{false};
-std::atomic_bool atomic_bool_lock{false};
-std::mutex m{};
+struct ReaSolotusState
+{
+    ReaSolotusState()
+    {
+        projectStateText.reserve(BUFSIZ);
+        projectStateBuffer.resize(BUFSIZ);
+    }
+
+    int commandId{-1};
+    int initCommandId{-1};
+    int enabled{0};
+    std::atomic_bool callbackGuard{false};
+    std::mutex mutex{};
+    std::set<MediaTrack*> soloQueue{};
+    std::unordered_map<MediaTrack*, std::vector<MediaTrack*>> mutedSends{};
+    std::string projectStateText{};
+    std::vector<char> projectStateBuffer{};
+    ReaSolotus* csurf{};
+};
+
+ReaSolotusState* state{};
 
 // from SWS/SNM extension
 /******************************************************************************
@@ -99,33 +111,27 @@ bool HasSend(MediaTrack* src, MediaTrack* dst)
     return res;
 }
 
-MediaTrack* GetMixbus()
+MediaTrack* FindTrackByStoredGuid(const char* extStateKey)
 {
-    static MediaTrack* res = nullptr;
-
-    if (res != nullptr && ValidatePtr2(0, res, "MediaTrack*"))
-        return res;
-
-    res = nullptr;
-
-    char buf[BUFSIZ]{};
-    GUID* g{};
-    GetProjExtState(0, EXTNAME, "Mix", buf, BUFSIZ);
-
-    std::string s = buf;
+    char storedGuid[BUFSIZ]{};
+    GetProjExtState(0, EXTNAME, extStateKey, storedGuid, BUFSIZ);
 
     for (int i = 0; i < GetNumTracks(); i++)
     {
-        auto* tr = GetTrack(0, i);
-        g = GetTrackGUID(tr);
-        guidToString(g, buf);
-        if (s == buf)
-            res = tr;
+        MediaTrack* track = GetTrack(0, i);
+        GUID* guid = GetTrackGUID(track);
+        char trackGuid[BUFSIZ]{};
+        guidToString(guid, trackGuid);
+        if (std::string(storedGuid) == trackGuid)
+            return track;
     }
 
-    // CreateMixBus(res, g, buf);
+    return nullptr;
+}
 
-    return res;
+MediaTrack* GetMixbus()
+{
+    return FindTrackByStoredGuid("Mix");
 }
 
 void CreateMixBus(MediaTrack* res)
@@ -142,40 +148,16 @@ void CreateMixBus(MediaTrack* res)
         ReorderSelectedTracks(0, 0);
         SetTrackSelected(res, false);
     }
-    GUID* g;
-    g = GetTrackGUID(res);
-    char buf[512];
-    guidToString(g, buf);
-    SetProjExtState(0, EXTNAME, "Mix", buf);
+
+    GUID* guid = GetTrackGUID(res);
+    char guidText[512];
+    guidToString(guid, guidText);
+    SetProjExtState(0, EXTNAME, "Mix", guidText);
 }
 
 MediaTrack* GetSolobus()
 {
-    static MediaTrack* res = nullptr;
-
-    if (res != nullptr && ValidatePtr2(0, res, "MediaTrack*"))
-        return res;
-
-    res = nullptr;
-
-    char buf[BUFSIZ]{};
-    GUID* g{};
-    GetProjExtState(0, EXTNAME, "Solo", buf, BUFSIZ);
-
-    std::string s = buf;
-
-    for (int i = 0; i < GetNumTracks(); i++)
-    {
-        auto* tr = GetTrack(0, i);
-        g = GetTrackGUID(tr);
-        guidToString(g, buf);
-        if (s == buf)
-            res = tr;
-    }
-
-    // CreateSoloBus(res, g, buf);
-
-    return res;
+    return FindTrackByStoredGuid("Solo");
 }
 
 void CreateSoloBus(MediaTrack* res)
@@ -192,82 +174,163 @@ void CreateSoloBus(MediaTrack* res)
         SetTrackSelected(res, false);
     }
 
-    GUID* g;
-    g = GetTrackGUID(res);
-    char buf[512];
-    guidToString(g, buf);
-    SetProjExtState(0, EXTNAME, "Solo", buf);
+    GUID* guid = GetTrackGUID(res);
+    char guidText[512];
+    guidToString(guid, guidText);
+    SetProjExtState(0, EXTNAME, "Solo", guidText);
 }
 
-void SendAllChannels(int trackSendId, MediaTrack* sendTrack, MediaTrack* receiveTrack)
+int FindSendToTrack(MediaTrack* src, MediaTrack* dst)
 {
-    int sendNumChannels = (int)GetMediaTrackInfo_Value(sendTrack, "I_NCHAN");
-    int receiveNumChannels = (int)GetMediaTrackInfo_Value(receiveTrack, "I_NCHAN");
-
-    if (sendNumChannels > receiveNumChannels)
-        GetSetMediaTrackInfo(receiveTrack, "I_NCHAN", &sendNumChannels);
-
-    if (sendNumChannels > 2)
+    for (int i = 0; i < GetTrackNumSends(src, 0); i++)
     {
-        int chanFlag = (sendNumChannels << 9);
-        SetTrackSendInfo_Value(sendTrack, 0, trackSendId, "I_SRCCHAN", chanFlag);
-        SetTrackSendInfo_Value(sendTrack, 0, trackSendId, "I_SRCCHAN", chanFlag);
+        MediaTrack* sendDst = (MediaTrack*)(uintptr_t)GetTrackSendInfo_Value(src, 0, i, "P_DESTTRACK");
+        if (sendDst == dst)
+            return i;
     }
+
+    return -1;
+}
+
+int BuildSourceChannelSpec(int channelCount)
+{
+    int sourceChannelSpec = 0;
+
+    if (channelCount <= 0)
+        return sourceChannelSpec;
+
+    if (channelCount == 1)
+        sourceChannelSpec = 1;
+    else if (channelCount > 2)
+        sourceChannelSpec = channelCount / 2;
+
+    return sourceChannelSpec;
+}
+
+void SanitizeSendToBus(MediaTrack* sendTrack, MediaTrack* receiveBus)
+{
+    if (sendTrack == nullptr || receiveBus == nullptr)
+        return;
+
+    int sendCount = GetTrackNumSends(sendTrack, 0);
+    for (int sendIdx = 0; sendIdx < sendCount; sendIdx++)
+    {
+        MediaTrack* sendDst = (MediaTrack*)(uintptr_t)GetTrackSendInfo_Value(sendTrack, 0, sendIdx, "P_DESTTRACK");
+        if (sendDst != receiveBus)
+            continue;
+
+        int trackChannels = (int)GetMediaTrackInfo_Value(sendTrack, "I_NCHAN");
+        int busChannels = (int)GetMediaTrackInfo_Value(receiveBus, "I_NCHAN");
+        int sendChannelCount = std::min(trackChannels, busChannels);
+
+        if (sendChannelCount <= 0)
+            continue;
+
+        if (sendChannelCount > 1 && (sendChannelCount % 2) != 0)
+            sendChannelCount--;
+
+        int sourceChannelSpec = BuildSourceChannelSpec(sendChannelCount);
+
+        SetTrackSendInfo_Value(sendTrack, 0, sendIdx, "I_SRCCHAN", sourceChannelSpec << 10);
+        SetTrackSendInfo_Value(sendTrack, 0, sendIdx, "I_DSTCHAN", 0);
+    }
+}
+
+void SanitizeAllSendsToBuses(MediaTrack* mixbus, MediaTrack* solobus)
+{
+    if (mixbus == nullptr || solobus == nullptr)
+        return;
+
+    for (int i = 0; i < GetNumTracks(); i++)
+    {
+        MediaTrack* tr = GetTrack(0, i);
+        if (tr == nullptr)
+            continue;
+
+        SanitizeSendToBus(tr, mixbus);
+        SanitizeSendToBus(tr, solobus);
+    }
+}
+
+void SanitizeSoloBusChannels(MediaTrack* mixbus, MediaTrack* solobus)
+{
+    if (mixbus == nullptr || solobus == nullptr)
+        return;
+
+    int mixbusChannels = (int)GetMediaTrackInfo_Value(mixbus, "I_NCHAN");
+    int solobusChannels = (int)GetMediaTrackInfo_Value(solobus, "I_NCHAN");
+
+    if (mixbusChannels > 0 && solobusChannels != mixbusChannels)
+        SetMediaTrackInfo_Value(solobus, "I_NCHAN", mixbusChannels);
+}
+
+void ConfigureSendChannels(int trackSendId, MediaTrack* sendTrack)
+{
+    if (trackSendId < 0)
+        return;
+
+    int sendNumChannels = (int)GetMediaTrackInfo_Value(sendTrack, "I_NCHAN");
+    int sendChannelCount = sendNumChannels;
+
+    if (sendChannelCount > 1 && (sendChannelCount % 2) != 0)
+        sendChannelCount--;
+
+    int sourceChannelSpec = BuildSourceChannelSpec(sendChannelCount);
+
+    SetTrackSendInfo_Value(sendTrack, 0, trackSendId, "I_SRCCHAN", sourceChannelSpec << 10);
+    SetTrackSendInfo_Value(sendTrack, 0, trackSendId, "I_DSTCHAN", 0);
+}
+
+int CreateManagedSend(MediaTrack* sendTrack, MediaTrack* receiveTrack)
+{
+    int trackSendId = CreateTrackSend(sendTrack, receiveTrack);
+    ConfigureSendChannels(trackSendId, sendTrack);
+    return trackSendId;
 }
 
 void Organize()
 {
-    auto* master = GetMasterTrack(0);
-    auto* mixbus = GetMixbus();
-    auto* solobus = GetSolobus();
-    auto folderFound{false};
-    // auto hasSends {false};
+    MediaTrack* master = GetMasterTrack(0);
+    MediaTrack* mixbus = GetMixbus();
+    MediaTrack* solobus = GetSolobus();
+    bool folderFound = false;
+    int trackCount = GetNumTracks();
 
     if (!mixbus || !solobus)
         return;
 
-    for (auto i = 0; i < GetNumTracks(); i++)
+    for (int i = 0; i < trackCount; i++)
     {
-        auto* tr = GetTrack(0, i);
+        MediaTrack* tr = GetTrack(0, i);
 
         if (GetTrackNumSends(tr, 1) > 0)
             SetMediaTrackInfo_Value(tr, "B_SOLO_DEFEAT", 1);
 
         if (HasSend(tr, master) && tr != mixbus && tr != solobus && tr != master)
-        {
-            auto j = CreateTrackSend(tr, mixbus);
-            if (solotus_multichannel)
-                SendAllChannels(j, tr, mixbus);
-        }
+            CreateManagedSend(tr, mixbus);
 
         if (!HasSend(tr, solobus) && tr != solobus && tr != master)
         {
-            auto j = CreateTrackSend(tr, solobus);
+            int j = CreateManagedSend(tr, solobus);
             SetTrackSendInfo_Value(tr, 0, j, "B_MUTE", (tr == mixbus) ? 0 : 1);
             SetTrackSendInfo_Value(tr, 0, j, "I_SENDMODE", 3);
-            if (solotus_multichannel)
-                SendAllChannels(j, tr, solobus);
         }
 
-        auto* parent = GetParentTrack(tr);
+        MediaTrack* parent = GetParentTrack(tr);
 
         if (parent != nullptr)
         {
             folderFound = true;
-            auto hasParentSend = GetMediaTrackInfo_Value(tr, "B_MAINSEND");
+            double hasParentSend = GetMediaTrackInfo_Value(tr, "B_MAINSEND");
             if (!HasSend(tr, parent) && hasParentSend > 0)
-            {
-                auto j = CreateTrackSend(tr, parent);
-                if (solotus_multichannel)
-                    SendAllChannels(j, tr, parent);
-            }
+                CreateManagedSend(tr, parent);
             for (int j = 0; j < GetTrackNumSends(tr, 0); j++)
             {
-                auto* dst = (MediaTrack*)(uintptr_t)GetTrackSendInfo_Value(tr, 0, j, "P_DESTTRACK");
+                MediaTrack* dst = (MediaTrack*)(uintptr_t)GetTrackSendInfo_Value(tr, 0, j, "P_DESTTRACK");
                 if (dst == mixbus)
                     RemoveTrackSend(tr, 0, j);
             }
-            auto parentIdx = (int)GetMediaTrackInfo_Value(parent, "IP_TRACKNUMBER");
+            int parentIdx = (int)GetMediaTrackInfo_Value(parent, "IP_TRACKNUMBER");
 
             SetOnlyTrackSelected(tr);
             ReorderSelectedTracks(parentIdx - 1, 0);
@@ -276,10 +339,6 @@ void Organize()
 
         if (tr != solobus)
             SetMediaTrackInfo_Value(tr, "B_MAINSEND", 0);
-
-        // if (GetTrackNumSends(tr, 0) > 2) {
-        //     hasSends = true;
-        // }
     }
 
     SetMediaTrackInfo_Value(mixbus, "B_SOLO_DEFEAT", 1);
@@ -294,7 +353,7 @@ void Organize()
     ;
 }
 
-void DoSolo(std::set<MediaTrack*>& queue)
+void DoSolo()
 {
     auto* solobus = GetSolobus();
     auto* mixbus = GetMixbus();
@@ -306,12 +365,19 @@ void DoSolo(std::set<MediaTrack*>& queue)
     }
 
     PreventUIRefresh(1);
-    // Undo_BeginBlock2(0);
-    if (!queue.empty())
-        Organize();
 
-    for (auto&& tr : queue)
+    SanitizeSoloBusChannels(mixbus, solobus);
+
+    SanitizeSendToBus(mixbus, solobus);
+
+    bool hasRelevantSolo = !state->soloQueue.empty();
+    bool isMixbusSoloed = state->soloQueue.contains(mixbus);
+
+    for (auto* tr : state->soloQueue)
     {
+        SanitizeSendToBus(tr, solobus);
+        SanitizeSendToBus(tr, mixbus);
+
         for (int i = 0; i < GetTrackNumSends(tr, 0); i++)
         {
             auto dst = (MediaTrack*)(uintptr_t)GetTrackSendInfo_Value(tr, 0, i, "P_DESTTRACK");
@@ -323,7 +389,7 @@ void DoSolo(std::set<MediaTrack*>& queue)
     for (int i = 0; i < GetTrackNumSends(solobus, -1); i++)
     {
         auto* src = (MediaTrack*)(uintptr_t)GetTrackSendInfo_Value(solobus, -1, i, "P_SRCTRACK");
-        if (!queue.contains(src) && src != mixbus)
+        if (!state->soloQueue.contains(src) && src != mixbus)
         {
             auto isMuted = (bool)GetTrackSendInfo_Value(solobus, -1, i, "B_MUTE");
             if (!isMuted)
@@ -337,17 +403,14 @@ void DoSolo(std::set<MediaTrack*>& queue)
         if (dst == solobus)
         {
             auto isMuted = (bool)GetTrackSendInfo_Value(mixbus, 0, i, "B_MUTE");
-            if (isMuted && !AnyTrackSolo(0))
+            if (isMuted && !hasRelevantSolo)
                 SetTrackSendInfo_Value(mixbus, 0, i, "B_MUTE", 0);
-            else if (!isMuted && AnyTrackSolo(0))
+            else if (!isMuted && hasRelevantSolo && !isMixbusSoloed)
                 SetTrackSendInfo_Value(mixbus, 0, i, "B_MUTE", 1);
         }
     }
-    // Undo_EndBlock2(0, "ReaSolotus", 0);
     PreventUIRefresh(-1);
 }
-
-std::unordered_map<MediaTrack*, std::vector<MediaTrack*>> mutedSends{};
 
 template <typename T>
 void removeFirst(std::vector<T>& vec, const T& element)
@@ -363,27 +426,14 @@ bool hasElement(const std::vector<T>& vec, const T& element)
     return std::find(vec.begin(), vec.end(), element) != vec.end();
 }
 
-std::string GUIDToString(GUID* guid)
+void AppendGuidToProjectState(GUID* guid)
 {
     char buf[BUFSIZ];
     guidToString(guid, buf);
-    return buf;
+    state->projectStateText += buf;
 }
 
-std::string serializeMap(const std::unordered_map<MediaTrack*, std::vector<MediaTrack*>>& map)
-{
-    std::ostringstream oss;
-    for (const auto& pair : map)
-    {
-        oss << GUIDToString(GetTrackGUID(pair.first)) << ":";
-        for (const auto& element : pair.second)
-            oss << GUIDToString(GetTrackGUID(element)) << ",";
-        oss << ";";
-    }
-    return oss.str();
-}
-
-MediaTrack* stringToTrack(const std::string& str)
+MediaTrack* FindTrackByGuid(const char* guidText, size_t guidLength)
 {
     for (int i = 0; i < GetNumTracks(); i++)
     {
@@ -391,68 +441,109 @@ MediaTrack* stringToTrack(const std::string& str)
         auto* g = GetTrackGUID(tr);
         char buf[BUFSIZ];
         guidToString(g, buf);
-        if (buf == str)
+        if (strlen(buf) == guidLength && !strncmp(buf, guidText, guidLength))
             return tr;
     }
     return nullptr;
 }
 
-std::unordered_map<MediaTrack*, std::vector<MediaTrack*>> deserializeMap(const std::string& str)
+void SerializeMutedSends()
 {
-    std::unordered_map<MediaTrack*, std::vector<MediaTrack*>> map;
-    std::istringstream iss(str);
-    std::string line;
-    while (std::getline(iss, line, ';'))
+    state->projectStateText.clear();
+    for (const auto& pair : state->mutedSends)
     {
-        std::istringstream lineStream(line);
-        std::string trackStr;
-        std::getline(lineStream, trackStr, ':');
-        MediaTrack* key = stringToTrack(trackStr);
-        if (key == nullptr)
+        AppendGuidToProjectState(GetTrackGUID(pair.first));
+        state->projectStateText.push_back(':');
+        for (auto* element : pair.second)
         {
-            // Handle error
+            AppendGuidToProjectState(GetTrackGUID(element));
+            state->projectStateText.push_back(',');
+        }
+        state->projectStateText.push_back(';');
+    }
+}
+
+void DeserializeMutedSends(const std::string& str)
+{
+    state->mutedSends.clear();
+
+    size_t entryStart = 0;
+    while (entryStart < str.size())
+    {
+        size_t entryEnd = str.find(';', entryStart);
+        if (entryEnd == std::string::npos)
+            entryEnd = str.size();
+
+        if (entryEnd == entryStart)
+        {
+            entryStart = entryEnd + 1;
             continue;
         }
-        std::vector<MediaTrack*> value;
-        while (std::getline(lineStream, trackStr, ','))
+
+        size_t keyEnd = str.find(':', entryStart);
+        if (keyEnd == std::string::npos || keyEnd > entryEnd)
         {
-            MediaTrack* track = stringToTrack(trackStr);
+            entryStart = entryEnd + 1;
+            continue;
+        }
+
+        MediaTrack* key = FindTrackByGuid(str.c_str() + entryStart, keyEnd - entryStart);
+        if (key == nullptr)
+        {
+            entryStart = entryEnd + 1;
+            continue;
+        }
+
+        auto& value = state->mutedSends[key];
+        size_t valueStart = keyEnd + 1;
+        while (valueStart < entryEnd)
+        {
+            size_t valueEnd = str.find(',', valueStart);
+            if (valueEnd == std::string::npos || valueEnd > entryEnd)
+                valueEnd = entryEnd;
+
+            MediaTrack* track = FindTrackByGuid(str.c_str() + valueStart, valueEnd - valueStart);
             if (track != nullptr)
                 value.push_back(track);
+
+            valueStart = valueEnd + 1;
         }
-        map[key] = value;
+
+        entryStart = entryEnd + 1;
     }
-    return map;
 }
 
 void StoreStringToProjExtState(const std::string& key, const std::string& str)
 {
-    SetProjExtState(0, EXTNAME, key.c_str(), std::string(str + "#").c_str());
+    state->projectStateText = str;
+    state->projectStateText.push_back('#');
+    SetProjExtState(0, EXTNAME, key.c_str(), state->projectStateText.c_str());
+    state->projectStateText.pop_back();
 }
 
-std::string LoadStringFromProjExtState(const std::string& key)
+const std::string& LoadStringFromProjExtState(const std::string& key)
 {
-    static int bufSize = BUFSIZ;
-    char* buf = new char[bufSize];
-    GetProjExtState(0, EXTNAME, key.c_str(), buf, bufSize);
-    std::string str = buf;
-    while (!str.empty() && str.find('#') == std::string::npos)
+    int bufferSize = (int)state->projectStateBuffer.size();
+    GetProjExtState(0, EXTNAME, key.c_str(), state->projectStateBuffer.data(), bufferSize);
+    state->projectStateText = state->projectStateBuffer.data();
+
+    while (!state->projectStateText.empty() && state->projectStateText.find('#') == std::string::npos)
     {
-        delete[] buf;
-        buf = nullptr;
-        bufSize = bufSize * 2;
-        buf = new char[bufSize];
-        GetProjExtState(0, EXTNAME, key.c_str(), buf, bufSize);
-        str = buf;
+        state->projectStateBuffer.resize(state->projectStateBuffer.size() * 2);
+        bufferSize = (int)state->projectStateBuffer.size();
+        GetProjExtState(0, EXTNAME, key.c_str(), state->projectStateBuffer.data(), bufferSize);
+        state->projectStateText = state->projectStateBuffer.data();
     }
-    delete[] buf;
-    buf = nullptr;
-    return str.substr(0, str.find('#'));
+
+    size_t endPos = state->projectStateText.find('#');
+    if (endPos != std::string::npos)
+        state->projectStateText.resize(endPos);
+
+    return state->projectStateText;
 }
 
 void DoMute(MediaTrack* tr, bool mute)
 {
-    // auto* mixbus = GetMixbus();
     auto* solobus = GetSolobus();
     if (!solobus)
     {
@@ -461,8 +552,7 @@ void DoMute(MediaTrack* tr, bool mute)
     }
 
     PreventUIRefresh(1);
-    auto str = LoadStringFromProjExtState("mutedSends");
-    mutedSends = deserializeMap(str);
+    DeserializeMutedSends(LoadStringFromProjExtState("mutedSends"));
 
     for (int i = 0; i < GetTrackNumSends(tr, 0); i++)
     {
@@ -473,17 +563,23 @@ void DoMute(MediaTrack* tr, bool mute)
             if (!isMuted && mute)
             {
                 SetTrackSendInfo_Value(tr, 0, i, "B_MUTE", 1);
-                mutedSends[tr].push_back(dst);
+                state->mutedSends[tr].push_back(dst);
             }
-            else if (isMuted && !mute && hasElement(mutedSends[tr], dst))
+            else if (isMuted && !mute)
             {
-                SetTrackSendInfo_Value(tr, 0, i, "B_MUTE", 0);
-                removeFirst(mutedSends[tr], dst);
+                auto mutedSendIt = state->mutedSends.find(tr);
+                if (mutedSendIt != state->mutedSends.end() && hasElement(mutedSendIt->second, dst))
+                {
+                    SetTrackSendInfo_Value(tr, 0, i, "B_MUTE", 0);
+                    removeFirst(mutedSendIt->second, dst);
+                    if (mutedSendIt->second.empty())
+                        state->mutedSends.erase(mutedSendIt);
+                }
             }
         }
     }
-    str = serializeMap(mutedSends);
-    StoreStringToProjExtState("mutedSends", str);
+    SerializeMutedSends();
+    StoreStringToProjExtState("mutedSends", state->projectStateText);
     PreventUIRefresh(-1);
 }
 
@@ -491,18 +587,29 @@ void ShutDown();
 
 void Initialize()
 {
-    auto* mixbus = GetMixbus();
-    auto* solobus = GetSolobus();
+    Undo_BeginBlock();
+
+    MediaTrack* mixbus = GetMixbus();
+    MediaTrack* solobus = GetSolobus();
     if (!mixbus)
         CreateMixBus(mixbus);
     if (!solobus)
         CreateSoloBus(solobus);
+
+    mixbus = GetMixbus();
+    solobus = GetSolobus();
+
     Organize();
+    SanitizeSoloBusChannels(mixbus, solobus);
+    SanitizeAllSendsToBuses(mixbus, solobus);
+
+    Undo_EndBlock("ReaSolotus Init", -1);
+
+    ShowConsoleMsg("ReaSolotus: Remember to set output for Mix bus. Master is the solo/control room/phones output.\n");
 }
 
-static bool CommandHook(
-    KbdSectionInfo* sec, const int command, const int val, const int valhw, const int relmode, HWND hwnd
-)
+static bool
+CommandHook(KbdSectionInfo* sec, const int command, const int val, const int valhw, const int relmode, HWND hwnd)
 {
     (void)sec;
     (void)val;
@@ -510,24 +617,20 @@ static bool CommandHook(
     (void)relmode;
     (void)hwnd;
 
-    if (command == solotus_init_command_id)
+    if (!state)
+        return false;
+
+    if (command == state->initCommandId)
     {
-        solotus_multichannel = false;
-        Initialize();
-        return true;
-    }
-    else if (command == solotus_init_multichannel_command_id)
-    {
-        solotus_multichannel = true;
         Initialize();
         return true;
     }
 
-    std::scoped_lock lock(m);
-    if (command == solotus_command_id)
+    std::scoped_lock lock(state->mutex);
+    if (command == state->commandId)
     {
-        solotus_state = !solotus_state;
-        if (!solotus_state)
+        state->enabled = !state->enabled;
+        if (!state->enabled)
             ShutDown();
         return true;
     }
@@ -537,25 +640,26 @@ static bool CommandHook(
 
 int ToggleActionCallback(int command_id)
 {
-    std::scoped_lock lock(m);
-    if (command_id == solotus_command_id)
-        return solotus_state;
+    if (!state)
+        return -1;
+
+    std::scoped_lock lock(state->mutex);
+    if (command_id == state->commandId)
+        return state->enabled;
 
     return -1;
 }
 
+custom_action_register_t action_registration{0, "AK5K_REASOLOTUS", "ReaSolotus", nullptr};
+custom_action_register_t action_init_registration{0, "AK5K_REASOLOTUS_INIT", "ReaSolotus Init", nullptr};
+
 void Register()
 {
-    custom_action_register_t action{0, "AK5K_REASOLOTUS", "ReaSolotus", nullptr};
-    solotus_command_id = plugin_register("custom_action", &action);
+    if (!state)
+        state = new ReaSolotusState();
 
-    custom_action_register_t actionInit{0, "AK5K_REASOLOTUS_INIT", "ReaSolotus Init", nullptr};
-    solotus_init_command_id = plugin_register("custom_action", &actionInit);
-
-    custom_action_register_t actionInitMultichannel{
-        0, "AK5K_REASOLOTUS_INIT_MULTICHANNEL", "ReaSolotus Init (MultiChannel Support)", nullptr
-    };
-    solotus_init_multichannel_command_id = plugin_register("custom_action", &actionInitMultichannel);
+    state->commandId = plugin_register("custom_action", &action_registration);
+    state->initCommandId = plugin_register("custom_action", &action_init_registration);
 
     plugin_register("hookcommand2", (void*)&CommandHook);
     plugin_register("toggleaction", (void*)&ToggleActionCallback);
@@ -582,52 +686,73 @@ public:
     void SetSurfaceSolo(MediaTrack* trackid, bool solo) override
     {
         // to avoid internal recursion
-        if (atomic_bool_lock)
+        if (!state || state->callbackGuard)
             return;
 
-        std::scoped_lock lock(m);
-        if (solotus_state == 0)
+        std::scoped_lock lock(state->mutex);
+        if (state->enabled == 0)
             return;
         auto* master = GetMasterTrack(0);
+        auto* solobus = GetSolobus();
         if (trackid != master)
             return;
 
-        atomic_bool_lock = true;
-        std::set<MediaTrack*> queue{};
+        state->callbackGuard = true;
+        state->soloQueue.clear();
         if (solo)
         {
             for (int i = 0; i < GetNumTracks(); i++)
             {
                 auto* tr = GetTrack(0, i);
-                int state{};
-                (void)GetTrackState(tr, &state);
-                if (state & 16)
-                    queue.insert(tr);
+                int trackState{};
+                (void)GetTrackState(tr, &trackState);
+                if ((trackState & 16) && tr != solobus)
+                    state->soloQueue.insert(tr);
             }
         }
 
-        DoSolo(queue);
-        atomic_bool_lock = false;
+        DoSolo();
+        state->callbackGuard = false;
     }
 
     void SetSurfaceMute(MediaTrack* trackid, bool mute) override
     {
         // to avoid internal recursion
-        if (atomic_bool_lock)
+        if (!state || state->callbackGuard)
             return;
 
-        // std::scoped_lock lock(m);
-        if (solotus_state == 0)
+        std::scoped_lock lock(state->mutex);
+        if (state->enabled == 0)
             return;
         auto* master = GetMasterTrack(0);
         if (trackid == master)
             return;
 
-        atomic_bool_lock = true;
+        state->callbackGuard = true;
         DoMute(trackid, mute);
-        atomic_bool_lock = false;
+        state->callbackGuard = false;
     }
 };
+
+void Unregister()
+{
+    if (!state)
+        return;
+
+    plugin_register("-toggleaction", (void*)&ToggleActionCallback);
+    plugin_register("-hookcommand2", (void*)&CommandHook);
+
+    if (state->commandId > 0)
+        plugin_register("-custom_action", &action_registration);
+    if (state->initCommandId > 0)
+        plugin_register("-custom_action", &action_init_registration);
+
+    delete state->csurf;
+    state->csurf = nullptr;
+
+    delete state;
+    state = nullptr;
+}
 
 void ShutDown()
 {
@@ -647,23 +772,27 @@ void ShutDown()
 
 } // namespace reasolotus
 
-reasolotus::ReaSolotus* csurf;
-
 extern "C"
 {
     REAPER_PLUGIN_DLL_EXPORT int ReaperPluginEntry(REAPER_PLUGIN_HINSTANCE hInstance, reaper_plugin_info_t* rec)
     {
         (void)hInstance;
-        csurf = new reasolotus::ReaSolotus();
         if (!rec)
         {
-            delete csurf;
+            if (reasolotus::state && reasolotus::state->csurf)
+            {
+                plugin_register("-csurf_inst", reasolotus::state->csurf);
+                reasolotus::Unregister();
+            }
             return 0;
         }
+
         if (rec->caller_version != REAPER_PLUGIN_VERSION || REAPERAPI_LoadAPI(rec->GetFunc))
             return 0;
+
         reasolotus::Register();
-        plugin_register("csurf_inst", csurf);
+        reasolotus::state->csurf = new reasolotus::ReaSolotus();
+        plugin_register("csurf_inst", reasolotus::state->csurf);
         return 1;
     }
 }

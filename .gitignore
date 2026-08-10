@@ -1,37 +1,14 @@
-**/build
-**/.vs*
-**/out
-.DS_Store
+*
+!*/
 
-# Prerequisites
-*.d
+.gitignore
+/build*/
+/_deps/
 
-# Compiled Object files
-*.slo
-*.lo
-*.o
-*.obj
+!/.vscode/**
+!/cmake/**
+!/src/**
 
-# Precompiled Headers
-*.gch
-*.pch
-
-# Compiled Dynamic libraries
-*.so
-*.dylib
-*.dll
-
-# Fortran module files
-*.mod
-*.smod
-
-# Compiled Static libraries
-*.lai
-*.la
-*.a
-*.lib
-
-# Executables
-*.exe
-*.out
-*.app
+!CmakeLists.txt
+!LICENSE
+!README.md
