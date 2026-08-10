@@ -2,12 +2,14 @@
 !*/
 
 .gitignore
+/build/
+/.deps/
 
 !/.vscode/**
 !/cmake/**
 !/src/**
 
-CmakeLists.txt
-CMakePresets.json
-LICENSE
-README.md
+!CmakeLists.txt
+!CMakePresets.json
+!LICENSE
+!README.md
