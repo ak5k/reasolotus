@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 4.0)
+cmake_minimum_required(VERSION 3.31)
 project(reasolotus VERSION 0.2.0 LANGUAGES C CXX)
 
 set(
